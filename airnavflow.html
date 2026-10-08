@@ -1278,19 +1278,19 @@ td button{padding:0 7px;line-height:22px;color:var(--red);background:none;border
 </section>
 
 <section class="offline-panel">
-  <div class="offline-head"><b>แผนที่ออฟไลน์</b><small id="netStatus">…</small></div>
-  <div class="offline-info" id="offlineInfo">กำลังตรวจสอบ…</div>
+  <div class="offline-head"><b>Offline Map</b><small id="netStatus">…</small></div>
+  <div class="offline-info" id="offlineInfo">Checking…</div>
   <div class="offline-bar" id="offlineBar"><div></div></div>
   <div class="offline-actions">
-    <button type="button" id="offlineDl">ดาวน์โหลดแผนที่ลงเครื่อง</button>
-    <button type="button" id="offlineDel">ลบ</button>
+    <button type="button" id="offlineDl">Download Offline Map</button>
+    <button type="button" id="offlineDel">Delete</button>
   </div>
-  <div class="offline-head" style="margin-top:14px"><b>ข้อมูลความสูง + เงาภูเขา</b></div>
-  <div class="offline-info" id="elevInfo">กำลังตรวจสอบ…</div>
+  <div class="offline-head" style="margin-top:14px"><b>Elevation Data + Hillshade</b></div>
+  <div class="offline-info" id="elevInfo">Checking…</div>
   <div class="offline-bar" id="elevBar"><div></div></div>
   <div class="offline-actions">
-    <button type="button" id="elevDl">ดาวน์โหลดข้อมูลความสูง</button>
-    <button type="button" id="elevDel">ลบ</button>
+    <button type="button" id="elevDl">Download Elevation Data</button>
+    <button type="button" id="elevDel">Delete</button>
   </div>
 </section>
 
@@ -4077,7 +4077,7 @@ var enrAtsGroup=L.layerGroup([enrAtsLayer,enrNavLayer]);
 var enrRnavGroup=L.layerGroup([enrRnavLayer,enrRnavLblLayer]);
 
 L.control.layers(
- {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'แผนที่ออฟไลน์ (OSM)':offlineBase},
+ {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'Offline Map (OSM)':offlineBase},
  {
    'เส้นจังหวัด':provLayer,
    'สนามบิน':aptLayer,
@@ -4088,7 +4088,7 @@ L.control.layers(
    '<span style="color:#ff2fd6;font-weight:600">ENR RNAV Route + labels (labels zoom 8+)</span>':enrRnavGroup,
    '<span style="color:#2f6bff;font-weight:600">ENR Waypoints (zoom 8+)</span>':enrWptLayer,
    '<span style="color:#2f6bff;font-weight:600">ENR ATS labels (zoom 8+)</span>':enrLblLayer,
-   'เงาภูเขา (Hillshade)':hillshadeLayer,
+   'Hillshade':hillshadeLayer,
    '<span style="color:#ff6b6b;font-weight:600">Imported NOTAM</span>':notamLayer
  }
 ).addTo(map);
@@ -5180,16 +5180,16 @@ function renderOfflineInfo(msg){
   var dl=document.getElementById('offlineDl'),del=document.getElementById('offlineDel');
   if(msg){info.textContent=msg;}
   else if(offlineState.stored){
-    info.innerHTML='✓ มีแผนที่ในเครื่องแล้ว '+fmtMB(offlineState.bytes)+
-      (offlineState.savedAt?' (โหลดเมื่อ '+new Date(offlineState.savedAt).toLocaleDateString('th-TH')+')':'')+
-      '<br>ใช้ได้แม้ไม่มีสัญญาณ: เลือกชั้น "แผนที่ออฟไลน์ (OSM)" + ปุ่ม GPS';
+    info.innerHTML='✓ Offline map saved on this device: '+fmtMB(offlineState.bytes)+
+      (offlineState.savedAt?' (downloaded '+new Date(offlineState.savedAt).toLocaleDateString('en-GB')+')':'')+
+      '<br>Works without signal: select the "Offline Map (OSM)" layer + GPS button';
   }else if(offlineState.onServer===false){
-    info.textContent='ยังไม่มีไฟล์แผนที่บนเว็บไซต์ (map/thailand.pmtiles) ต้องให้ GitHub Actions สร้างก่อน';
+    info.textContent='Map file not on the website yet (map/thailand.pmtiles). GitHub Actions must build it first.';
   }else{
-    info.textContent='ยังไม่ได้โหลดแผนที่ลงเครื่อง กดดาวน์โหลดตอนมี Wi-Fi ก่อนออกบิน';
+    info.textContent='Map not downloaded yet. Download on Wi-Fi before flight.';
   }
   dl.disabled=offlineState.busy||!navigator.onLine||offlineState.onServer===false;
-  dl.textContent=offlineState.stored?'อัปเดตแผนที่':'ดาวน์โหลดแผนที่ลงเครื่อง';
+  dl.textContent=offlineState.stored?'Update Offline Map':'Download Offline Map';
   del.disabled=offlineState.busy||!offlineState.stored;
 }
 function useStoredOfflineMap(){
@@ -5208,7 +5208,7 @@ function downloadOfflineMap(){
   offlineState.busy=true;
   var bar=document.getElementById('offlineBar'),fill=bar.firstElementChild;
   bar.classList.add('on');fill.style.width='0';
-  renderOfflineInfo('กำลังดาวน์โหลด…');
+  renderOfflineInfo('Downloading…');
   fetch(OFFLINE_MAP_URL,{cache:'no-store'}).then(function(res){
     if(!res.ok)throw new Error('HTTP '+res.status);
     var total=Number(res.headers.get('content-length'))||0,got=0,chunks=[];
@@ -5218,7 +5218,7 @@ function downloadOfflineMap(){
         if(r.done)return new Blob(chunks,{type:'application/octet-stream'});
         chunks.push(r.value);got+=r.value.length;
         if(total)fill.style.width=Math.min(100,got/total*100).toFixed(1)+'%';
-        renderOfflineInfo('กำลังดาวน์โหลด… '+fmtMB(got)+(total?' / '+fmtMB(total):''));
+        renderOfflineInfo('Downloading… '+fmtMB(got)+(total?' / '+fmtMB(total):''));
         return pump();
       });
     }
@@ -5236,11 +5236,11 @@ function downloadOfflineMap(){
     renderOfflineInfo();
   }).catch(function(err){
     offlineState.busy=false;bar.classList.remove('on');renderOfflineInfo();
-    alert('ดาวน์โหลดแผนที่ไม่สำเร็จ ('+(err&&err.message||err)+') ลองใหม่อีกครั้งเมื่อสัญญาณดี');
+    alert('Map download failed ('+(err&&err.message||err)+'). Try again with a better connection.');
   });
 }
 function deleteOfflineMap(){
-  if(!confirm('ลบแผนที่ออฟไลน์ออกจากเครื่อง?'))return;
+  if(!confirm('Delete the offline map from this device?'))return;
   caches.delete(OFFLINE_CACHE).then(function(){
     offlineState.stored=false;offlineState.bytes=0;offlineState.savedAt=0;
     if(navigator.onLine)return setOfflineSource(OFFLINE_MAP_URL).catch(function(){});
@@ -5274,16 +5274,16 @@ function renderElevInfo(msg){
   var dl=document.getElementById('elevDl'),del=document.getElementById('elevDel');
   if(msg){info.textContent=msg;}
   else if(elevState.stored){
-    info.innerHTML='✓ มีข้อมูลความสูงในเครื่องแล้ว '+fmtMB(elevState.bytes)+
-      (elevState.savedAt?' (โหลดเมื่อ '+new Date(elevState.savedAt).toLocaleDateString('th-TH')+')':'')+
-      '<br>กราฟความสูง + Highest ELEV ใช้ได้แม้ไม่มีสัญญาณ เปิดชั้น "เงาภูเขา (Hillshade)" ได้';
+    info.innerHTML='✓ Elevation data saved on this device: '+fmtMB(elevState.bytes)+
+      (elevState.savedAt?' (downloaded '+new Date(elevState.savedAt).toLocaleDateString('en-GB')+')':'')+
+      '<br>Elevation profile + Highest ELEV work without signal. Turn on the "Hillshade" layer.';
   }else if(elevState.onServer===false){
-    info.textContent='ยังไม่มีไฟล์ความสูงบนเว็บไซต์ (map/elevation.pmtiles) ต้องให้ GitHub Actions สร้างก่อน';
+    info.textContent='Elevation file not on the website yet (map/elevation.pmtiles). GitHub Actions must build it first.';
   }else{
-    info.textContent='ยังไม่ได้โหลดข้อมูลความสูงลงเครื่อง กดดาวน์โหลดตอนมี Wi-Fi';
+    info.textContent='Elevation data not downloaded yet. Download on Wi-Fi.';
   }
   dl.disabled=elevState.busy||!navigator.onLine||elevState.onServer===false;
-  dl.textContent=elevState.stored?'อัปเดตข้อมูลความสูง':'ดาวน์โหลดข้อมูลความสูง';
+  dl.textContent=elevState.stored?'Update Elevation Data':'Download Elevation Data';
   del.disabled=elevState.busy||!elevState.stored;
 }
 function useStoredElev(){
@@ -5302,7 +5302,7 @@ function downloadElev(){
   elevState.busy=true;
   var bar=document.getElementById('elevBar'),fill=bar.firstElementChild;
   bar.classList.add('on');fill.style.width='0';
-  renderElevInfo('กำลังดาวน์โหลด…');
+  renderElevInfo('Downloading…');
   fetch(ELEV_URL,{cache:'no-store'}).then(function(res){
     if(!res.ok)throw new Error('HTTP '+res.status);
     var total=Number(res.headers.get('content-length'))||0,got=0,chunks=[],reader=res.body.getReader();
@@ -5311,7 +5311,7 @@ function downloadElev(){
         if(r.done)return new Blob(chunks,{type:'application/octet-stream'});
         chunks.push(r.value);got+=r.value.length;
         if(total)fill.style.width=Math.min(100,got/total*100).toFixed(1)+'%';
-        renderElevInfo('กำลังดาวน์โหลด… '+fmtMB(got)+(total?' / '+fmtMB(total):''));
+        renderElevInfo('Downloading… '+fmtMB(got)+(total?' / '+fmtMB(total):''));
         return pump();
       });
     }
@@ -5327,11 +5327,11 @@ function downloadElev(){
     elevState.busy=false;bar.classList.remove('on');renderElevInfo();
   }).catch(function(err){
     elevState.busy=false;bar.classList.remove('on');renderElevInfo();
-    alert('ดาวน์โหลดข้อมูลความสูงไม่สำเร็จ ('+(err&&err.message||err)+') ลองใหม่อีกครั้งเมื่อสัญญาณดี');
+    alert('Elevation download failed ('+(err&&err.message||err)+'). Try again with a better connection.');
   });
 }
 function deleteElev(){
-  if(!confirm('ลบข้อมูลความสูงออกจากเครื่อง?'))return;
+  if(!confirm('Delete the elevation data from this device?'))return;
   caches.delete(ELEV_CACHE).then(function(){
     elevState.stored=false;elevState.bytes=0;elevState.savedAt=0;
     elevPM=null;elevTiles.clear();shadeTiles.clear();hillshadeLayer.redraw();
