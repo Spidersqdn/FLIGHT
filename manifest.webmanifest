@@ -1,0 +1,16 @@
+{
+  "name": "FLIGHT-PLANNER",
+  "short_name": "FlightPlan",
+  "description": "VFR flight planner – AIP Thailand",
+  "lang": "th",
+  "start_url": "airnavflow.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#30343a",
+  "theme_color": "#30343a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
