@@ -758,10 +758,13 @@ td button{padding:0 7px;line-height:22px;color:var(--red);background:none;border
 .notam-pin{width:22px;height:22px;border-radius:50%;background:#ff4d4d;color:#fff;border:2px solid #fff;text-align:center;font:bold 14px/18px sans-serif;box-shadow:0 1px 5px rgba(0,0,0,.5)}
 .leaflet-control-layers{background:#112233;color:#f1f3f5;border:1px solid #666d76}
 .leaflet-control-layers label{font-size:12px}
-@media (max-width:760px){
+/* Portrait (phone or tablet): map on top = 2/3 of the screen, panel below = 1/3 */
+@media (orientation:portrait){
   body{flex-direction:column-reverse}
-  #panel{width:100%;height:48vh;border-right:none;border-top:1px solid var(--line)}
-  #mapwrap{flex:1}
+  #panel{width:100%;height:33.333vh;height:33.333dvh;border-right:none;border-top:1px solid var(--line)}
+  #mapwrap{flex:1;min-height:0}
+}
+@media (max-width:760px){
   .big{font-size:30px}
 }
 
@@ -1191,12 +1194,13 @@ td .wp-delete{
 }
 
 
-/* Scrollable layer control for small/mobile screens */
-.leaflet-control-layers-expanded{
-  max-height:calc(100vh - 24px);
+/* Scrollable layer list: height limited to the map (set by fitLayerCtl) */
+.leaflet-control-layers-expanded .leaflet-control-layers-list{
+  max-height:var(--layers-max,60vh);
   overflow-y:auto;
   overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
 }
 
 /* Route / Off-route add buttons */
@@ -4763,7 +4767,7 @@ var airspaceGroup=L.layerGroup([prohibLayer,restrictLayer,dangerLayer,traLayer])
 var enrAtsGroup=L.layerGroup([enrAtsLayer,enrNavLayer]);
 var enrRnavGroup=L.layerGroup([enrRnavLayer,enrRnavLblLayer]);
 
-L.control.layers(
+var layerCtl=L.control.layers(
  {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'แผนที่ออฟไลน์ (OSM)':offlineBase},
  {
    'เงาภูเขา (Hillshade)':hillshadeLayer,
@@ -4780,6 +4784,15 @@ L.control.layers(
    '<span style="color:#ff6b6b;font-weight:600">Imported NOTAM</span>':notamLayer
  }
 ).addTo(map);
+function fitLayerCtl(){
+  var c=layerCtl.getContainer();
+  var h=map.getSize().y-(c.offsetTop||10)-20;
+  c.style.setProperty('--layers-max',Math.max(120,h)+'px');
+}
+map.on('resize',fitLayerCtl);
+layerCtl.getContainer().addEventListener('mouseenter',fitLayerCtl);
+layerCtl.getContainer().addEventListener('touchstart',fitLayerCtl,{passive:true});
+fitLayerCtl();
 
 function enrGate(){map.getContainer().classList.toggle('enr-zlow',map.getZoom()<8);}
 map.on('zoomend',enrGate);enrGate();
