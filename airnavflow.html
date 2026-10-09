@@ -1628,6 +1628,7 @@ td .wp-delete{
   <button type="button" id="btnNotamExample" style="background:transparent;border-color:var(--line);color:var(--mute)">ใส่ตัวอย่าง NOTAM</button>
   <button type="button" id="btnParseNotam">พอร์ตลงแผนที่</button>
   <div id="notamAutoInfo" style="font-size:11px;color:var(--mute);margin-top:6px"></div>
+  <button type="button" id="btnNotamListToggle" style="display:none;background:transparent;border-color:var(--line);color:var(--mute);margin-top:6px"></button>
   <div id="notamImportList"></div>
 </section>
 
@@ -4151,11 +4152,20 @@ function removeNotam(uid){
 }
 function renderNotamImportList(){
   var el=document.getElementById('notamImportList');if(!el)return;
+  var tg=document.getElementById('btnNotamListToggle'),hide=false;
+  try{hide=localStorage.getItem('fp-notam-list-hidden')==='1';}catch(e){}
+  if(tg){tg.style.display=NOTAM_DB.length?'':'none';tg.textContent=(hide?'▸ แสดงรายการ NOTAM (':'▾ ซ่อนรายการ NOTAM (')+NOTAM_DB.length+')';}
+  el.style.display=hide?'none':'';
   if(!NOTAM_DB.length){el.innerHTML='';return;}
   el.innerHTML=NOTAM_DB.map(function(n){
     return '<div class="notam-imp"><a href="#" data-fly="'+n.uid+'">⚠ '+esc(n.id)+'</a><span>'+esc(n.poly?n.poly.length+' pts':n.radiusNM+' NM')+'</span><button type="button" data-rm="'+n.uid+'" title="ลบ">✕</button></div>';
   }).join('');
 }
+document.getElementById('btnNotamListToggle').addEventListener('click',function(){
+  var hide=document.getElementById('notamImportList').style.display!=='none';
+  try{localStorage.setItem('fp-notam-list-hidden',hide?'1':'0');}catch(e){}
+  renderNotamImportList();
+});
 document.addEventListener('click',function(e){
   var d=e.target.closest&&e.target.closest('.notam-del');
   if(d){removeNotam(Number(d.getAttribute('data-uid')));return;}
