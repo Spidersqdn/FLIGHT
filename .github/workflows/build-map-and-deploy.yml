@@ -31,16 +31,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Month stamp (map is refreshed monthly)
+      - name: Month stamp + bbox hash (bbox change busts cache)
         id: stamp
-        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "bbox=$(printf %s "$MAP_BBOX" | sha256sum | cut -c1-8)" >> "$GITHUB_OUTPUT"
 
       - name: Reuse map built earlier this month
         id: mapcache
         uses: actions/cache@v4
         with:
           path: map/thailand.pmtiles
-          key: thailand-z${{ env.MAP_MAXZOOM }}-${{ steps.stamp.outputs.month }}
+          key: thailand-z${{ env.MAP_MAXZOOM }}-${{ steps.stamp.outputs.bbox }}-${{ steps.stamp.outputs.month }}
 
       - name: Install pmtiles CLI
         if: steps.mapcache.outputs.cache-hit != 'true'
@@ -72,7 +74,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: map/elevation.pmtiles
-          key: elevation-terrarium-z${{ env.ELEV_MAXZOOM }}-v1
+          key: elevation-terrarium-z${{ env.ELEV_MAXZOOM }}-${{ steps.stamp.outputs.bbox }}-v1
 
       - name: Build elevation file (AWS Terrain Tiles, Terrarium PNG)
         if: steps.elevcache.outputs.cache-hit != 'true'

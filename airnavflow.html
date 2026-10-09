@@ -4056,6 +4056,12 @@ function notamField(raw,tag,nextTags){
   var rx=new RegExp('(?:^|[\\s(])'+tag+'\\)\\s*([\\s\\S]*?)(?=(?:\\s|^)(?:'+nextTags+')\\)|\\)\\s*$|$)','i');
   var m=raw.match(rx);return m?m[1].trim():'';
 }
+/* C) end time "YYMMDDHHMM" (UTC) -> ms; PERM / missing -> 0 (never expires) */
+function notamEndMs(c){
+  var m=/^\s*(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(c||'');
+  return m?Date.UTC(2000+Number(m[1]),Number(m[2])-1,Number(m[3]),Number(m[4]),Number(m[5])):0;
+}
+function notamExpired(n){return !!n.endMs&&n.endMs<Date.now();}
 function parseOneNotam(raw){
   raw=raw.replace(/\r/g,'').trim();
   var idMatch=raw.match(/\b([A-Z]\d{4}\/\d{2})\b/);
@@ -4115,6 +4121,7 @@ function parseOneNotam(raw){
   if(head.length>90)head=head.slice(0,87)+'...';
   return {id:id,title:(head||'NOTAM')+(approx?' (approx. from Q-line)':''),
           lat:lat,lng:lng,radiusNM:rNM,poly:poly,text:raw,
+          approx:approx,endMs:notamEndMs(cTxt),
           vertical:vert.join(''),period:(bTxt||cTxt)?('B) '+bTxt+'  C) '+cTxt+(dTxt?'  D) '+dTxt:'')):''};
 }
 function splitNotams(raw){
@@ -4129,15 +4136,18 @@ function renderAllNotams(){
 }
 /* Draw one NOTAM (area + "!" pin + popup) into a layer */
 function addNotamShape(n,layer,col){
+    var expired=notamExpired(n);
+    if(expired)col='#8a8f98';
+    var fo=expired||n.approx?.06:.15, dash=n.approx&&!n.poly?'2 6':'6 4';
     var shape=n.poly
-      ? L.polygon(n.poly,{color:col,weight:2,dashArray:'6 4',fillColor:col,fillOpacity:.15})
-      : L.circle([n.lat,n.lng],{radius:Math.max(.2,n.radiusNM)*1852,color:col,weight:1.5,dashArray:'3 5',fillColor:col,fillOpacity:.15});
+      ? L.polygon(n.poly,{color:col,weight:2,dashArray:dash,fillColor:col,fillOpacity:fo})
+      : L.circle([n.lat,n.lng],{radius:Math.max(.2,n.radiusNM)*1852,color:col,weight:1.5,dashArray:n.approx?'2 6':'3 5',fillColor:col,fillOpacity:fo});
     shape.addTo(layer);
     var p=L.marker([n.lat,n.lng],{
       icon:L.divIcon({className:'notam-pin',html:'!',iconSize:[22,22],iconAnchor:[11,11]})
     }).addTo(layer);
     var popup=function(){
-      return '<div class="airspace-popup" style="max-width:340px"><h4 style="color:#ff4d4d">⚠ '+esc(n.id)+'</h4>'+
+      return '<div class="airspace-popup" style="max-width:340px"><h4 style="color:#ff4d4d">⚠ '+esc(n.id)+(notamExpired(n)?' <span style="color:#8a8f98">(EXPIRED)</span>':'')+'</h4>'+
         '<div><b>'+esc(n.title)+'</b>'+(n.poly?'':'<br>Radius '+n.radiusNM+' NM')+
         '<br>'+formatDDM(n.lat,true)+' '+formatDDM(n.lng,false)+
         (n.vertical?'<br>'+esc(n.vertical):'')+(n.period?'<br>'+esc(n.period):'')+'</div>'+
@@ -4275,7 +4285,7 @@ function updateRouteNotams(){
       var d=pDistToSegment(n,pts[i-1],pts[i]);
       if(d<minD)minD=d;
     }
-    if(minD<=BUFFER_NM+n.radiusNM)matched.push({notam:n,distNM:minD});
+    if(!notamExpired(n)&&minD<=BUFFER_NM+n.radiusNM)matched.push({notam:n,distNM:minD});
   });
   matched.sort(function(a,b){return a.distNM-b.distNM;});
   matched.forEach(function(m){addNotamShape(m.notam,notamRouteLayer,'#ff9f1a');});
@@ -5892,10 +5902,10 @@ document.getElementById('exportKmz').onclick=exportRouteKmz;
 
 document.getElementById('undo').onclick=function(){
   if(!pts.length)return;
-  pts.pop();refresh();
+  pts.pop();routeMapEditIndex=null;routeMapEditDraft=null;refresh();
 };
 document.getElementById('clear').onclick=function(){
-  pts=[];elevCache={};pendingInsertIndex=null;updateInsertModeBanner();refresh();
+  pts=[];elevCache={};pendingInsertIndex=null;routeMapEditIndex=null;routeMapEditDraft=null;updateInsertModeBanner();refresh();
 };
 
 document.getElementById('legs').addEventListener('click',function(e){
@@ -6409,13 +6419,16 @@ function loadAutoNotam(){
     }).join('\n');
     var fresh=[];
     splitNotams(body).forEach(function(chunk){
-      var x=parseOneNotam(chunk);if(!x)return;
+      var x=parseOneNotam(chunk);if(!x||notamExpired(x))return;
       if(fresh.some(function(y){return norm(y.text)===norm(x.text)||(x.id!=='CUSTOM-NOTAM'&&y.id===x.id);}))return;
       x.uid=++notamUid;x.auto=true;fresh.push(x);n++;
     });
     if(!n)throw new Error('empty');
-    /* Clear every NOTAM in the Imported NOTAM layer, then load the new set. */
-    NOTAM_DB=fresh;notamAutoAt=Date.now();
+    /* Replace the previous daily set; NOTAMs pasted by the user are kept. */
+    var manual=NOTAM_DB.filter(function(x){return !x.auto;});
+    fresh=fresh.filter(function(x){return !manual.some(function(y){return norm(y.text)===norm(x.text)||(x.id!=='CUSTOM-NOTAM'&&y.id===x.id);});});
+    n=fresh.length;
+    NOTAM_DB=manual.concat(fresh);notamAutoAt=Date.now();
     renderAllNotams();updateRouteNotams();
     if(info)info.textContent='Daily NOTAM: '+(name||'latest')+' · '+n+' items loaded'+(res.offline?' (offline copy)':'')+
       ' · turn on the "Imported NOTAM" layer to view';
