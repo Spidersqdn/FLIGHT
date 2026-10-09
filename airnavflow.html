@@ -1605,7 +1605,7 @@ td .wp-delete{
 <div class="actions">
   <button id="undo">BACK</button>
   <button id="clear">CLEAR ROUTE</button>
-  <button id="gpsBtn" type="button">GPS</button>
+  <button id="gpsBtn" type="button" title="Toggle GPS tracking (map follows position every 1 s)">GPS TRACK</button>
   <button id="measureBtn" type="button">RULER</button>
   <button id="exportKmz" type="button">EXPORT KMZ</button>
   <button id="wBtn" type="button">WINDY</button>
@@ -5502,6 +5502,22 @@ function locateCurrentPosition(centerMap){
   }
 
   navigator.geolocation.getCurrentPosition(function(pos){
+    drawGpsPosition(pos);
+    if(centerMap)map.flyTo([pos.coords.latitude,pos.coords.longitude],Math.max(map.getZoom(),13));
+  },function(err){
+    if(centerMap){
+      var msg='Unable to get current GPS position.';
+      if(err && err.code===1)msg+=' Location permission was denied.';
+      alert(msg);
+    }
+  },{
+    enableHighAccuracy:true,
+    timeout:10000,
+    maximumAge:15000
+  });
+}
+
+function drawGpsPosition(pos){
     var lat=pos.coords.latitude;
     var lng=pos.coords.longitude;
     var acc=pos.coords.accuracy||0;
@@ -5533,19 +5549,37 @@ function locateCurrentPosition(centerMap){
       (acc?'<br>± '+Math.round(acc)+' m':'')+'</span>',
       {direction:'top',offset:[0,-9]}
     );
+}
 
-    if(centerMap)map.flyTo([lat,lng],Math.max(map.getZoom(),13));
-  },function(err){
-    if(centerMap){
-      var msg='Unable to get current GPS position.';
-      if(err && err.code===1)msg+=' Location permission was denied.';
-      alert(msg);
-    }
-  },{
-    enableHighAccuracy:true,
-    timeout:10000,
-    maximumAge:15000
-  });
+/* GPS TRACK mode: watch position, redraw and re-center the map every 1 s until toggled off */
+var gpsTrackWatch=null,gpsTrackTimer=null,gpsTrackFix=null,gpsTrackFirst=false;
+function setGpsTrack(on){
+  var btn=document.getElementById('gpsBtn');
+  if(on){
+    if(!navigator.geolocation){alert('Geolocation is not supported by this browser.');return;}
+    gpsTrackFix=null;gpsTrackFirst=true;
+    gpsTrackWatch=navigator.geolocation.watchPosition(function(pos){
+      gpsTrackFix=pos;
+    },function(err){
+      if(err && err.code===1){
+        setGpsTrack(false);
+        alert('Unable to start GPS tracking. Location permission was denied.');
+      }
+    },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+    gpsTrackTimer=setInterval(function(){
+      if(!gpsTrackFix)return;
+      var ll=[gpsTrackFix.coords.latitude,gpsTrackFix.coords.longitude];
+      drawGpsPosition(gpsTrackFix);
+      if(gpsTrackFirst){gpsTrackFirst=false;map.setView(ll,Math.max(map.getZoom(),13));}
+      else map.panTo(ll,{animate:true,duration:.5});
+    },1000);
+    btn.classList.add('active');
+  }else{
+    if(gpsTrackWatch!==null)navigator.geolocation.clearWatch(gpsTrackWatch);
+    if(gpsTrackTimer)clearInterval(gpsTrackTimer);
+    gpsTrackWatch=gpsTrackTimer=null;
+    btn.classList.remove('active');
+  }
 }
 
 function clearMeasurement(){
@@ -5842,7 +5876,7 @@ document.getElementById('wClose').onclick=function(){
 };
 
 document.getElementById('gpsBtn').onclick=function(){
-  locateCurrentPosition(true);
+  setGpsTrack(gpsTrackTimer===null);
 };
 
 document.getElementById('measureBtn').onclick=function(){
