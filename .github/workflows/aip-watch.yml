@@ -73,15 +73,20 @@ jobs:
             gh issue close "$NUM" --comment "No changes in the checked pages."
             exit 0
           fi
-          # One comment per page, split into chunks that fit GitHub's 65k-character limit
+          # Pack page diffs into comments under GitHub's 65k-character limit
           python3 - "$MAX_DIFF_COMMENTS" <<'PY' > /dev/null
           import glob, os, sys
-          limit, parts, n = int(sys.argv[1]), [], 0
+          limit, parts, cur = int(sys.argv[1]), [], ""
           for f in sorted(glob.glob("aip-out/diff/*.diff")):
               text = open(f).read()
               name = os.path.basename(f)[:-5]
               for i in range(0, len(text), 60000):
-                  parts.append("**%s**\n```diff\n%s\n```" % (name, text[i:i + 60000]))
+                  block = "**%s**\n```diff\n%s\n```\n" % (name, text[i:i + 60000])
+                  if cur and len(cur) + len(block) > 62000:
+                      parts.append(cur); cur = ""
+                  cur += block
+          if cur:
+              parts.append(cur)
           os.makedirs("aip-out/comments", exist_ok=True)
           for i, p in enumerate(parts[:limit]):
               open("aip-out/comments/%03d.md" % i, "w").write(p)
