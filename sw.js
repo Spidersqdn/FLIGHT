@@ -1,4 +1,4 @@
-/* FLIGHT-PLANNER service worker
+/* AirNavFLOW service worker
    - App shell: cache-first (works offline after first visit)
    - Pages: network-first, falls back to cached shell when offline
    - Province borders / fonts: stale-while-revalidate

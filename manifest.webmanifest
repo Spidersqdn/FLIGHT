@@ -1,6 +1,6 @@
 {
-  "name": "FLIGHT-PLANNER",
-  "short_name": "FlightPlan",
+  "name": "AirNavFLOW",
+  "short_name": "AirNavFLOW",
   "description": "VFR flight planner – AIP Thailand",
   "lang": "th",
   "start_url": "airnavflow.html",
