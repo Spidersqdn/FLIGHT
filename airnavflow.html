@@ -3594,7 +3594,7 @@ var aptLayer=L.layerGroup().addTo(map);
 var prohibLayer=L.layerGroup();
 var restrictLayer=L.layerGroup();
 var dangerLayer=L.layerGroup();
-var notamLayer=L.layerGroup();
+var notamLayer=L.layerGroup(), notamRouteLayer=L.layerGroup();
 var lightRptLayer=L.layerGroup();
 var heliRptLayer=L.layerGroup();
 var lineLayer=L.layerGroup().addTo(map);
@@ -4124,14 +4124,18 @@ function splitNotams(raw){
 
 function renderAllNotams(){
   notamLayer.clearLayers();
-  NOTAM_DB.forEach(function(n){
+  NOTAM_DB.forEach(function(n){addNotamShape(n,notamLayer,'#ff6b6b');});
+  renderNotamImportList();
+}
+/* Draw one NOTAM (area + "!" pin + popup) into a layer */
+function addNotamShape(n,layer,col){
     var shape=n.poly
-      ? L.polygon(n.poly,{color:'#ff6b6b',weight:2,dashArray:'6 4',fillColor:'#ff6b6b',fillOpacity:.15})
-      : L.circle([n.lat,n.lng],{radius:Math.max(.2,n.radiusNM)*1852,color:'#ff6b6b',weight:1.5,dashArray:'3 5',fillColor:'#ff6b6b',fillOpacity:.15});
-    shape.addTo(notamLayer);
+      ? L.polygon(n.poly,{color:col,weight:2,dashArray:'6 4',fillColor:col,fillOpacity:.15})
+      : L.circle([n.lat,n.lng],{radius:Math.max(.2,n.radiusNM)*1852,color:col,weight:1.5,dashArray:'3 5',fillColor:col,fillOpacity:.15});
+    shape.addTo(layer);
     var p=L.marker([n.lat,n.lng],{
       icon:L.divIcon({className:'notam-pin',html:'!',iconSize:[22,22],iconAnchor:[11,11]})
-    }).addTo(notamLayer);
+    }).addTo(layer);
     var popup=function(){
       return '<div class="airspace-popup" style="max-width:340px"><h4 style="color:#ff4d4d">⚠ '+esc(n.id)+'</h4>'+
         '<div><b>'+esc(n.title)+'</b>'+(n.poly?'':'<br>Radius '+n.radiusNM+' NM')+
@@ -4141,8 +4145,6 @@ function renderAllNotams(){
         '<button type="button" class="notam-del" data-uid="'+n.uid+'" style="margin-top:6px;width:100%;background:#ff4d4d;color:#fff;border:0;border-radius:4px;padding:6px;font-weight:600;cursor:pointer">🗑 ลบ NOTAM นี้</button></div>';
     };
     shape.bindPopup(popup); p.bindPopup(popup);
-  });
-  renderNotamImportList();
 }
 function removeNotam(uid){
   NOTAM_DB=NOTAM_DB.filter(function(n){return n.uid!==uid;});
@@ -4259,6 +4261,7 @@ function updateRouteNotams(){
   var box=document.getElementById('notamRouteList');
   var countEl=document.getElementById('notamFoundCount');
 
+  notamRouteLayer.clearLayers();
   if(pts.length<2){
     box.innerHTML='<div style="color:var(--mute);font-size:12px">เลือกอย่างน้อย 2 จุด</div>';
     countEl.textContent='0 รายการ';
@@ -4275,6 +4278,7 @@ function updateRouteNotams(){
     if(minD<=BUFFER_NM+n.radiusNM)matched.push({notam:n,distNM:minD});
   });
   matched.sort(function(a,b){return a.distNM-b.distNM;});
+  matched.forEach(function(m){addNotamShape(m.notam,notamRouteLayer,'#ff9f1a');});
   countEl.textContent=matched.length+' รายการ';
 
   if(!matched.length){
@@ -4777,6 +4781,7 @@ function setElevSource(source){
 var airspaceGroup=L.layerGroup([prohibLayer,restrictLayer,dangerLayer,traLayer]);
 var enrAtsGroup=L.layerGroup([enrAtsLayer,enrNavLayer]);
 var enrRnavGroup=L.layerGroup([enrRnavLayer,enrRnavLblLayer]);
+var enrWptLblGroup=L.layerGroup([enrLblLayer,enrWptLayer]);
 
 var layerCtl=L.control.layers(
  {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'แผนที่ออฟไลน์ (OSM)':offlineBase},
@@ -4790,9 +4795,9 @@ var layerCtl=L.control.layers(
    '<span style="color:#ff1a1a;font-weight:600">VTP</span> · <span style="color:#ff944d;font-weight:600">VTR</span> · <span style="color:#ffcc00;font-weight:600">VTD</span> · <span style="color:#b388ff;font-weight:600">VTTRA</span>':airspaceGroup,
    '<span style="color:#2f6bff;font-weight:600">ENR ATS Route + Navaids</span>':enrAtsGroup,
    '<span style="color:#ff2fd6;font-weight:600">ENR RNAV Route + labels</span>':enrRnavGroup,
-   '<span style="color:#2f6bff;font-weight:600">ENR Waypoints</span>':enrWptLayer,
-   '<span style="color:#2f6bff;font-weight:600">ENR ATS labels</span>':enrLblLayer,
-   '<span style="color:#ff6b6b;font-weight:600">Imported NOTAM</span>':notamLayer
+   '<span style="color:#2f6bff;font-weight:600">ENR ATS label &amp; Wpt</span>':enrWptLblGroup,
+   '<span style="color:#ff6b6b;font-weight:600">Imported NOTAM</span>':notamLayer,
+   '<span style="color:#ff9f1a;font-weight:600">NOTAM on Route</span>':notamRouteLayer
  }
 ).addTo(map);
 function fitLayerCtl(){
