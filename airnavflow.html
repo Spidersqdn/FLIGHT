@@ -1627,6 +1627,7 @@ td .wp-delete{
   <textarea id="rawNotam" placeholder="วาง NOTAM เต็มรูปแบบ (ต้องมี Q) และ/หรือพิกัดใน E) เช่น 144705N1033019E-… ) — กด 'ใส่ตัวอย่าง' เพื่อดูรูปแบบ"></textarea>
   <button type="button" id="btnNotamExample" style="background:transparent;border-color:var(--line);color:var(--mute)">ใส่ตัวอย่าง NOTAM</button>
   <button type="button" id="btnParseNotam">พอร์ตลงแผนที่</button>
+  <div id="notamAutoInfo" style="font-size:11px;color:var(--mute);margin-top:6px"></div>
   <div id="notamImportList"></div>
 </section>
 
@@ -6335,10 +6336,44 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
   navigator.serviceWorker.register('sw.js').catch(function(){});
 }
 
+/* ---- Daily NOTAM file (notam/latest.txt, updated by the daily routine) ----
+   Loaded into the Imported NOTAM layer. Kept in Cache Storage for offline use. */
+var NOTAM_AUTO_URL='notam/latest.txt', NOTAM_AUTO_CACHE='fp-notam-v1';
+function loadAutoNotam(){
+  var info=document.getElementById('notamAutoInfo');
+  var fromNet=fetch(NOTAM_AUTO_URL,{cache:'no-cache'}).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var copy=r.clone();
+    if(window.caches)caches.open(NOTAM_AUTO_CACHE).then(function(c){c.put(NOTAM_AUTO_URL,copy);}).catch(function(){});
+    return r.text().then(function(t){return {text:t,offline:false};});
+  });
+  fromNet.catch(function(){
+    if(!window.caches)throw new Error('no cache');
+    return caches.open(NOTAM_AUTO_CACHE).then(function(c){return c.match(NOTAM_AUTO_URL);}).then(function(r){
+      if(!r)throw new Error('not cached');
+      return r.text().then(function(t){return {text:t,offline:true};});
+    });
+  }).then(function(res){
+    var name='',n=0,norm=function(t){return t.toUpperCase().replace(/[\s()]+/g,'');};
+    var body=res.text.split('\n').filter(function(l){
+      var m=/^#\s*(NOTAM\w+)/.exec(l);if(m)name=m[1];return !/^#/.test(l);
+    }).join('\n');
+    splitNotams(body).forEach(function(chunk){
+      var x=parseOneNotam(chunk);if(!x)return;
+      if(NOTAM_DB.some(function(y){return norm(y.text)===norm(x.text)||(x.id!=='CUSTOM-NOTAM'&&y.id===x.id);}))return;
+      x.uid=++notamUid;x.auto=true;NOTAM_DB.push(x);n++;
+    });
+    if(n){renderAllNotams();updateRouteNotams();}
+    if(info)info.textContent='Daily NOTAM: '+(name||'latest')+' · '+n+' items loaded'+(res.offline?' (offline copy)':'')+
+      ' · turn on the "Imported NOTAM" layer to view';
+  }).catch(function(){if(info)info.textContent='';});
+}
+
 loadRoute();
 loadOffRoute();
 initOfflineMap();
 initElev();
+loadAutoNotam();
 refresh();
 setTimeout(function(){locateCurrentPosition(false);},500);
 })();
