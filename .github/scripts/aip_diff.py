@@ -79,10 +79,15 @@ class Text(HTMLParser):
             self.out.append(data)
 
 
+# eAIP pages carry hidden database tags such as "TFREQUENCY;VAL_FREQ_TRANS;188"
+TAG_RE = re.compile(r"T[A-Z_]+;[A-Z_]+;\d+")
+
+
 def to_text(src):
     p = Text()
     p.feed(src)
-    lines = (re.sub(r"[ \t\r\f\v\xa0]+", " ", l).strip(" |") for l in "".join(p.out).split("\n"))
+    text = TAG_RE.sub("", "".join(p.out))
+    lines = (re.sub(r"[ \t\r\f\v\xa0]+", " ", l).strip(" |") for l in text.split("\n"))
     return [l for l in lines if l]
 
 
