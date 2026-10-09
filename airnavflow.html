@@ -6387,7 +6387,7 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
 
 /* ---- Daily NOTAM file (notam/latest.txt, updated by the daily routine) ----
    Loaded into the Imported NOTAM layer. Kept in Cache Storage for offline use. */
-var NOTAM_AUTO_URL='notam/latest.txt', NOTAM_AUTO_CACHE='fp-notam-v1';
+var NOTAM_AUTO_URL='notam/latest.txt', NOTAM_AUTO_CACHE='fp-notam-v1', notamAutoAt=0;
 function loadAutoNotam(){
   var info=document.getElementById('notamAutoInfo');
   var fromNet=fetch(NOTAM_AUTO_URL,{cache:'no-cache'}).then(function(r){
@@ -6407,12 +6407,16 @@ function loadAutoNotam(){
     var body=res.text.split('\n').filter(function(l){
       var m=/^#\s*(NOTAM\w+)/.exec(l);if(m)name=m[1];return !/^#/.test(l);
     }).join('\n');
+    var fresh=[];
     splitNotams(body).forEach(function(chunk){
       var x=parseOneNotam(chunk);if(!x)return;
-      if(NOTAM_DB.some(function(y){return norm(y.text)===norm(x.text)||(x.id!=='CUSTOM-NOTAM'&&y.id===x.id);}))return;
-      x.uid=++notamUid;x.auto=true;NOTAM_DB.push(x);n++;
+      if(fresh.some(function(y){return norm(y.text)===norm(x.text)||(x.id!=='CUSTOM-NOTAM'&&y.id===x.id);}))return;
+      x.uid=++notamUid;x.auto=true;fresh.push(x);n++;
     });
-    if(n){renderAllNotams();updateRouteNotams();}
+    if(!n)throw new Error('empty');
+    /* Clear every NOTAM in the Imported NOTAM layer, then load the new set. */
+    NOTAM_DB=fresh;notamAutoAt=Date.now();
+    renderAllNotams();updateRouteNotams();
     if(info)info.textContent='Daily NOTAM: '+(name||'latest')+' · '+n+' items loaded'+(res.offline?' (offline copy)':'')+
       ' · turn on the "Imported NOTAM" layer to view';
   }).catch(function(){if(info)info.textContent='';});
@@ -6423,6 +6427,10 @@ loadOffRoute();
 initOfflineMap();
 initElev();
 loadAutoNotam();
+/* Reload the daily file when the app comes back to the foreground after 3 h (new day's NOTAM). */
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&Date.now()-notamAutoAt>3*3600e3)loadAutoNotam();
+});
 refresh();
 setTimeout(function(){locateCurrentPosition(false);},500);
 })();
