@@ -4777,8 +4777,8 @@ var hillshadeLayer=new HillshadeLayer({pane:'hillshadeTop',zIndex:1,attribution:
 
 /* Contour lines (feet) traced in the browser from the same elevation tiles (marching squares) */
 var contourTiles=new Map(), FT=0.3048;
-function contourStep(z){return z>=10?500:z>=8?1000:2000;}   /* ft between lines; index line every 1000 ft (2000/4000 when zoomed out) */
-function contourIndex(z){return z>=10?1000:z>=8?2000:4000;}
+function contourStep(z){return z>=13?100:z>=12?200:z>=10?500:z>=8?1000:2000;}   /* ft between lines: 100 ft when zoomed in, coarser when zoomed out */
+function contourIndex(z){return z>=13?500:z>=10?1000:z>=8?2000:4000;}   /* thicker labeled index lines */
 /* Elevation grid (w+1)x(h+1) at pixel centres; last row/column borrowed from the right/bottom neighbours so lines join across tiles */
 function contourGrid(z,x,y){
   var n=1<<z,xr=(x+1)%n,yb=Math.min(y+1,n-1);
