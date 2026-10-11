@@ -1415,6 +1415,18 @@ td .wp-delete{
   line-height:1.2;
 }
 
+/* Four waypoint buttons (On MAP + 3 tabs): one row, equal width, one line */
+.wp-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.wp-tabs button{overflow:hidden;text-overflow:ellipsis}
+#onMapBtn{border-color:var(--amber);color:var(--amber);background:transparent}
+#onMapBtn[aria-pressed="true"]{background:var(--amber);color:#04202a;font-weight:600}
+#map{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.mapinfo-popup{font-size:12px;line-height:1.5;min-width:190px}
+.mapinfo-popup h4{margin:0 0 4px;font-size:13px}
+.mapinfo-popup .mi-btns{display:flex;gap:6px;margin-top:8px}
+.mapinfo-popup .mi-btns button{flex:1;padding:6px 4px;font-size:11px;background:var(--amber);border-color:var(--amber);color:#04202a}
+.mapinfo-popup .mi-btns button.mi-off{background:transparent;color:var(--amber)}
+
 /* Main six-button toolbar: slightly larger, still 3 per row */
 .actions{
   grid-template-columns:repeat(3, minmax(0, 1fr));
@@ -1540,9 +1552,10 @@ td .wp-delete{
 <section class="waypoint-input-panel">
   <h3>FLIGHT ROUTE Waypoint</h3>
   <div class="wp-tabs">
+    <button type="button" id="onMapBtn" aria-pressed="false" title="Toggle On MAP mode: tap the map to add route waypoints">On MAP</button>
     <button type="button" id="wpTabAirport" aria-pressed="true">AIRPORT</button>
-    <button type="button" id="wpTabLatLon" aria-pressed="false">LAT / LONG (DDM)</button>
-    <button type="button" id="wpTabRadial" aria-pressed="false">RADIAL / DME</button>
+    <button type="button" id="wpTabLatLon" aria-pressed="false">LAT/LONG</button>
+    <button type="button" id="wpTabRadial" aria-pressed="false">RADIAL/DME</button>
   </div>
 
   <div class="wp-mode on" id="wpModeAirport">
@@ -1665,7 +1678,7 @@ td .wp-delete{
 
 <div id="mapwrap">
   <div id="map"></div>
-  <div id="status">คลิกบนแผนที่เพื่อเพิ่ม waypoint</div>
+  <div id="status">กด On MAP เพื่อเพิ่ม waypoint • กดค้างที่แผนที่เพื่อดูข้อมูลจุด</div>
   <div id="windy">
     <header><span>Windy</span><span><button id="wSync" type="button">จุดล่าสุด</button> <button id="wClose" type="button">✕</button></span></header>
     <iframe id="wFrame" title="Windy" loading="lazy"></iframe>
@@ -4351,7 +4364,7 @@ function cancelOffRouteMapEdit(){
   offRouteMapEditIndex=null;
   offRouteMapEditDraft=null;
   drawOffRouteMarkers();
-  st.textContent='Click on map to add waypoint';
+  st.textContent=idleStatusText();
 }
 
 function nearestAirportForPoint(p){
@@ -5247,7 +5260,7 @@ function drawLines(){
 
   var el=document.getElementById('legs');
   if(!pts.length){
-    el.innerHTML='<p class="empty">คลิกบนแผนที่หรือเลือกสนามบินเพื่อวาง waypoint</p>';
+    el.innerHTML='<p class="empty">กด On MAP แล้วแตะแผนที่ หรือเลือกสนามบินเพื่อวาง waypoint</p>';
     renderElevationProfile();
     return;
   }
@@ -5292,7 +5305,7 @@ function cancelRouteMapEdit(index){
   routeMapEditIndex=null;
   routeMapEditDraft=null;
   refresh();
-  st.textContent='Click on map to add waypoint';
+  st.textContent=idleStatusText();
 }
 
 
@@ -5862,7 +5875,7 @@ function setMeasureMode(on){
     }
   }else{
     clearMeasurement();
-    st.textContent='Click on map to add waypoint';
+    st.textContent=idleStatusText();
   }
 }
 
@@ -5964,8 +5977,110 @@ map.on('click',function(e){
     handleMeasureClick(ll);
     return;
   }
+  if(Date.now()<mapInfoSuppressClick)return;
+  /* Default tap no longer adds a waypoint: only in On MAP mode (or an explicit Insert) */
+  if(!onMapActive && pendingInsertIndex===null)return;
   addPt(ll.lat,ll.lng,'');
 });
+
+/* ---- On MAP mode: toggle like GPS TRACK; while on, each map tap adds a ROUTE waypoint ---- */
+var onMapActive=false;
+function idleStatusText(){
+  return onMapActive?'ON MAP: tap map to add waypoint • press On MAP again to exit':
+    'Press On MAP to add waypoints • long-press map for point info';
+}
+function setOnMapMode(on){
+  onMapActive=!!on;
+  var btn=document.getElementById('onMapBtn');
+  btn.setAttribute('aria-pressed',onMapActive?'true':'false');
+  btn.classList.toggle('active',onMapActive);
+  if(onMapActive && measureActive)setMeasureMode(false);
+  st.textContent=idleStatusText();
+}
+document.getElementById('onMapBtn').onclick=function(){setOnMapMode(!onMapActive);};
+
+/* ---- Long-press (touch) / right-click (desktop): point info + Add ROUTE / Add Off-Route ---- */
+var mapInfoMarker=null,mapInfoLast=0,mapInfoSuppressClick=0;
+function elevFt(lat,lng){
+  return elevAt(lat,lng).then(function(m){
+    if(m!==null && isFinite(m))return {ft:Math.round(m*3.28084),src:'offline'};
+    throw new Error('no offline elevation');
+  }).catch(function(){
+    return fetch('https://api.open-meteo.com/v1/elevation?latitude='+lat.toFixed(4)+'&longitude='+(((lng+540)%360)-180).toFixed(4))
+      .then(function(r){return r.json();})
+      .then(function(j){
+        var m=j&&j.elevation&&j.elevation[0];
+        if(!isFinite(m))throw new Error('no elevation');
+        return {ft:Math.round(m*3.28084),src:'online'};
+      });
+  });
+}
+function showMapPointInfo(ll){
+  var now=Date.now();
+  if(now-mapInfoLast<800)return;
+  mapInfoLast=now;
+  mapInfoSuppressClick=now+700;
+  ll=ll.wrap();
+  var p={lat:ll.lat,lng:ll.lng};
+  var ap=nearestAirportForPoint(p);
+  var rd='—';
+  if(ap){
+    var ref={lat:ap[4],lng:ap[5]};
+    var r=Math.round(course(ref,p))%360;
+    rd=esc(ap[0])+' R'+String(r).padStart(3,'0')+'°T / '+dist(ref,p).toFixed(1)+' NM';
+  }
+  if(mapInfoMarker)map.removeLayer(mapInfoMarker);
+  mapInfoMarker=L.circleMarker([p.lat,p.lng],{radius:6,color:'#ffb000',weight:2,fillColor:'#ffb000',fillOpacity:.5}).addTo(map);
+  var html='<div class="mapinfo-popup"><h4>MAP POINT</h4>'+
+    '<div><b>Lat/Long:</b> '+esc(formatDDM(p.lat,true))+' / '+esc(formatDDM(p.lng,false))+'</div>'+
+    '<div><b>Radial/DME:</b> '+rd+'</div>'+
+    '<div><b>Elevation:</b> <span class="mi-elev">…</span></div>'+
+    '<div class="mi-btns"><button type="button" class="mi-route">Add ROUTE</button>'+
+    '<button type="button" class="mi-off">Add Off-Route</button></div></div>';
+  var pop=L.popup({closeButton:true,autoPan:true,autoPanPadding:[50,50],offset:[0,-4]}).setLatLng([p.lat,p.lng]).setContent(html).openOn(map);
+  var el=pop.getElement();
+  var icao=ap?ap[0]:'';
+  el.querySelector('.mi-route').onclick=function(){addPt(p.lat,p.lng,'',icao);map.closePopup(pop);};
+  el.querySelector('.mi-off').onclick=function(){addOffRoutePt(p.lat,p.lng,'',icao);map.closePopup(pop);};
+  pop.on('remove',function(){if(mapInfoMarker){map.removeLayer(mapInfoMarker);mapInfoMarker=null;}});
+  elevFt(p.lat,p.lng).then(function(e){
+    var s=el.querySelector('.mi-elev');
+    if(s)s.textContent=e.ft.toLocaleString()+' ft'+(e.src==='online'?' (online)':'');
+  }).catch(function(){
+    var s=el.querySelector('.mi-elev');
+    if(s)s.textContent='N/A (download elevation or go online)';
+  });
+}
+map.on('contextmenu',function(e){
+  if(e.originalEvent&&e.originalEvent.preventDefault)e.originalEvent.preventDefault();
+  showMapPointInfo(e.latlng);
+});
+(function(){
+  var c=map.getContainer(),timer=null,start=null,touches=0;
+  function cancel(){if(timer){clearTimeout(timer);timer=null;}}
+  c.addEventListener('pointerdown',function(e){
+    if(e.pointerType==='mouse')return;           /* desktop uses right-click (contextmenu) */
+    touches++;
+    cancel();
+    if(touches>1)return;                         /* pinch zoom */
+    if(e.target.closest && e.target.closest('.leaflet-marker-icon,.leaflet-popup,.leaflet-control'))return; /* markers/popups/controls keep their own behaviour */
+    start={x:e.clientX,y:e.clientY};
+    var ll=map.mouseEventToLatLng(e);
+    timer=setTimeout(function(){
+      timer=null;showMapPointInfo(ll);
+      /* swallow the click that follows the release so it does not add a point or open another popup */
+      var stop=function(ev){ev.stopPropagation();ev.preventDefault();};
+      c.addEventListener('click',stop,true);
+      setTimeout(function(){c.removeEventListener('click',stop,true);},800);
+    },600);
+  });
+  c.addEventListener('pointermove',function(e){
+    if(timer&&start&&Math.hypot(e.clientX-start.x,e.clientY-start.y)>10)cancel();
+  });
+  function up(){touches=Math.max(0,touches-1);cancel();}
+  c.addEventListener('pointerup',up);
+  c.addEventListener('pointercancel',up);
+})();
 
 function openWindy(){
   var p=pts.length?pts[pts.length-1]:null;
