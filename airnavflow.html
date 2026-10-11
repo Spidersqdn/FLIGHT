@@ -3586,9 +3586,9 @@ function setOfflineSource(source){
 }
 
 var map=L.map('map',{center:[13.5,101],zoom:6,layers:[sat],worldCopyJump:true});
-var hillshadePane=map.createPane('hillshadeTop');
-hillshadePane.style.zIndex=450;
-hillshadePane.style.pointerEvents='none';
+var terrainPane=map.createPane('terrainTop');
+terrainPane.style.zIndex=450;
+terrainPane.style.pointerEvents='none';
 var provLayer=L.layerGroup().addTo(map);
 var aptLayer=L.layerGroup().addTo(map);
 var prohibLayer=L.layerGroup();
@@ -4671,7 +4671,7 @@ function addPt(lat,lng,name,refIcao){
 
 /* ---- Offline elevation: Terrarium PNG tiles in one PMTiles file (map/elevation.pmtiles) ---- */
 var ELEV_URL='map/elevation.pmtiles', ELEV_CACHE='fp-offline-elev-v1';
-var elevPM=null, elevMaxZ=10, elevTiles=new Map(), shadeTiles=new Map();
+var elevPM=null, elevMaxZ=10, elevTiles=new Map();
 var elevState={stored:false,bytes:0,savedAt:0,onServer:null,busy:false};
 
 function lruPut(m,k,v,max){m.set(k,v);if(m.size>max)m.delete(m.keys().next().value);return v;}
@@ -4726,56 +4726,7 @@ function elevProfileOnline(a,b){
   });
 }
 
-/* Hillshade computed in the browser from the elevation tiles */
-function hillshadeCanvas(z,x,y){
-  var key=z+'/'+x+'/'+y;
-  if(shadeTiles.has(key))return shadeTiles.get(key);
-  return lruPut(shadeTiles,key,elevTile(z,x,y).then(function(t){
-    if(!t)return null;
-    var w=t.w,h=t.h,H=t.data,n=1<<z;
-    var latC=Math.atan(Math.sinh(Math.PI*(1-2*(y+0.5)/n)))*deg;
-    var mpp=40075016.686*Math.cos(latC*rad)/(w*n);
-    var zf=z<=8?4:2.5, zen=45*rad, azm=135*rad;
-    var c=document.createElement('canvas');c.width=w;c.height=h;
-    var ctx=c.getContext('2d'),img=ctx.createImageData(w,h),o=img.data;
-    function v(ix,iy){var e=H[iy*w+ix];return e>0?e:0;}
-    for(var iy=0;iy<h;iy++){
-      var ym=iy>0?iy-1:iy,yp=iy<h-1?iy+1:iy;
-      for(var ix=0;ix<w;ix++){
-        var xm=ix>0?ix-1:ix,xp=ix<w-1?ix+1:ix;
-        var dzdx=(v(xp,iy)-v(xm,iy))/((xp-xm)*mpp)*zf;
-        var dzdy=(v(ix,yp)-v(ix,ym))/((yp-ym)*mpp)*zf;
-        var slope=Math.atan(Math.sqrt(dzdx*dzdx+dzdy*dzdy));
-        var aspect=Math.atan2(dzdy,-dzdx);
-        var sh=Math.cos(zen)*Math.cos(slope)+Math.sin(zen)*Math.sin(slope)*Math.cos(azm-aspect);
-        var d=sh-Math.cos(zen),i=(iy*w+ix)*4;
-        if(d<0){o[i]=o[i+1]=o[i+2]=0;o[i+3]=Math.min(200,-d*420);}
-        else{o[i]=o[i+1]=o[i+2]=255;o[i+3]=Math.min(110,d*260);}
-      }
-    }
-    ctx.putImageData(img,0,0);
-    return c;
-  }),120);
-}
-var HillshadeLayer=L.GridLayer.extend({
-  createTile:function(coords,done){
-    var tile=document.createElement('canvas'),size=this.getTileSize();
-    tile.width=size.x;tile.height=size.y;
-    if(!elevPM){setTimeout(function(){done(null,tile);},0);return tile;}
-    var z=Math.min(coords.z,elevMaxZ),dz=coords.z-z,sx=coords.x>>dz,sy=coords.y>>dz;
-    hillshadeCanvas(z,sx,sy).then(function(src){
-      if(src){
-        var f=1<<dz,cw=src.width/f;
-        tile.getContext('2d').drawImage(src,(coords.x-(sx<<dz))*cw,(coords.y-(sy<<dz))*cw,cw,cw,0,0,size.x,size.y);
-      }
-      done(null,tile);
-    });
-    return tile;
-  }
-});
-var hillshadeLayer=new HillshadeLayer({pane:'hillshadeTop',zIndex:1,attribution:'Terrain: Mapzen / AWS Terrain Tiles'});
-
-/* Contour lines (feet) traced in the browser from the same elevation tiles (marching squares) */
+/* Contour lines (feet) traced in the browser from the elevation tiles (marching squares) */
 var contourTiles=new Map(), FT=0.3048;
 function contourStep(z){return z>=13?100:z>=12?200:z>=10?500:z>=8?1000:2000;}   /* ft between lines: 100 ft when zoomed in, coarser when zoomed out */
 function contourIndex(z){return z>=13?500:z>=10?1000:z>=8?2000:4000;}   /* thicker labeled index lines */
@@ -4919,14 +4870,14 @@ var ContourLayer=L.GridLayer.extend({
     return tile;
   }
 });
-var contourLayer=new ContourLayer({pane:'hillshadeTop',zIndex:2,minZoom:7,attribution:'Terrain: Mapzen / AWS Terrain Tiles'});
+var contourLayer=new ContourLayer({pane:'terrainTop',zIndex:1,minZoom:7,attribution:'Terrain: Mapzen / AWS Terrain Tiles'});
 
 function setElevSource(source){
   if(typeof pmtiles==='undefined')return Promise.reject(new Error('lib'));
   var pm=new pmtiles.PMTiles(source);
   return pm.getHeader().then(function(h){
-    elevPM=pm;elevMaxZ=h.maxZoom||10;elevTiles.clear();shadeTiles.clear();contourTiles.clear();
-    hillshadeLayer.redraw();contourLayer.redraw();
+    elevPM=pm;elevMaxZ=h.maxZoom||10;elevTiles.clear();contourTiles.clear();
+    contourLayer.redraw();
     Object.keys(elevCache).forEach(function(k){if(elevCache[k]==='err')delete elevCache[k];});
     loadElev();drawLines();
     return h;
@@ -4942,7 +4893,6 @@ var enrWptLblGroup=L.layerGroup([enrLblLayer,enrWptLayer]);
 var layerCtl=L.control.layers(
  {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'แผนที่ออฟไลน์ (OSM)':offlineBase},
  {
-   'เงาภูเขา (Hillshade)':hillshadeLayer,
    'เส้นชั้นความสูง (Contour ft)':contourLayer,
    '<span style="color:#d9dde2;font-weight:600">OFF-ROUTE Wpt</span>':offRouteLayer,
    'เส้นจังหวัด':provLayer,
@@ -6463,7 +6413,7 @@ function renderElevInfo(msg){
   else if(elevState.stored){
     info.innerHTML='✓ มีข้อมูลความสูงในเครื่องแล้ว '+fmtMB(elevState.bytes)+
       (elevState.savedAt?' (โหลดเมื่อ '+new Date(elevState.savedAt).toLocaleDateString('th-TH')+')':'')+
-      '<br>กราฟความสูง + Highest ELEV ใช้ได้แม้ไม่มีสัญญาณ เปิดชั้น "เงาภูเขา (Hillshade)" และ "เส้นชั้นความสูง (Contour ft)" ได้';
+      '<br>กราฟความสูง + Highest ELEV ใช้ได้แม้ไม่มีสัญญาณ เปิดชั้น "เส้นชั้นความสูง (Contour ft)" ได้';
   }else if(elevState.onServer===false){
     info.textContent='ยังไม่มีไฟล์ความสูงบนเว็บไซต์ (map/elevation.pmtiles) ต้องให้ GitHub Actions สร้างก่อน';
   }else{
@@ -6521,7 +6471,7 @@ function deleteElev(){
   if(!confirm('ลบข้อมูลความสูงออกจากเครื่อง?'))return;
   caches.delete(ELEV_CACHE).then(function(){
     elevState.stored=false;elevState.bytes=0;elevState.savedAt=0;
-    elevPM=null;elevTiles.clear();shadeTiles.clear();contourTiles.clear();hillshadeLayer.redraw();contourLayer.redraw();
+    elevPM=null;elevTiles.clear();contourTiles.clear();contourLayer.redraw();
     if(navigator.onLine)return setElevSource(ELEV_URL).catch(function(){});
   }).then(function(){renderElevInfo();});
 }
