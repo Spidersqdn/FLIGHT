@@ -3586,9 +3586,9 @@ function setOfflineSource(source){
 }
 
 var map=L.map('map',{center:[13.5,101],zoom:6,layers:[sat],worldCopyJump:true});
-var hillshadePane=map.createPane('hillshadeTop');
-hillshadePane.style.zIndex=450;
-hillshadePane.style.pointerEvents='none';
+var terrainPane=map.createPane('terrainTop');
+terrainPane.style.zIndex=450;
+terrainPane.style.pointerEvents='none';
 var provLayer=L.layerGroup().addTo(map);
 var aptLayer=L.layerGroup().addTo(map);
 var prohibLayer=L.layerGroup();
@@ -4671,7 +4671,7 @@ function addPt(lat,lng,name,refIcao){
 
 /* ---- Offline elevation: Terrarium PNG tiles in one PMTiles file (map/elevation.pmtiles) ---- */
 var ELEV_URL='map/elevation.pmtiles', ELEV_CACHE='fp-offline-elev-v1';
-var elevPM=null, elevMaxZ=10, elevTiles=new Map(), shadeTiles=new Map();
+var elevPM=null, elevMaxZ=10, elevTiles=new Map();
 var elevState={stored:false,bytes:0,savedAt:0,onServer:null,busy:false};
 
 function lruPut(m,k,v,max){m.set(k,v);if(m.size>max)m.delete(m.keys().next().value);return v;}
@@ -4726,61 +4726,158 @@ function elevProfileOnline(a,b){
   });
 }
 
-/* Hillshade computed in the browser from the elevation tiles */
-function hillshadeCanvas(z,x,y){
-  var key=z+'/'+x+'/'+y;
-  if(shadeTiles.has(key))return shadeTiles.get(key);
-  return lruPut(shadeTiles,key,elevTile(z,x,y).then(function(t){
-    if(!t)return null;
-    var w=t.w,h=t.h,H=t.data,n=1<<z;
-    var latC=Math.atan(Math.sinh(Math.PI*(1-2*(y+0.5)/n)))*deg;
-    var mpp=40075016.686*Math.cos(latC*rad)/(w*n);
-    var zf=z<=8?4:2.5, zen=45*rad, azm=135*rad;
-    var c=document.createElement('canvas');c.width=w;c.height=h;
-    var ctx=c.getContext('2d'),img=ctx.createImageData(w,h),o=img.data;
-    function v(ix,iy){var e=H[iy*w+ix];return e>0?e:0;}
-    for(var iy=0;iy<h;iy++){
-      var ym=iy>0?iy-1:iy,yp=iy<h-1?iy+1:iy;
-      for(var ix=0;ix<w;ix++){
-        var xm=ix>0?ix-1:ix,xp=ix<w-1?ix+1:ix;
-        var dzdx=(v(xp,iy)-v(xm,iy))/((xp-xm)*mpp)*zf;
-        var dzdy=(v(ix,yp)-v(ix,ym))/((yp-ym)*mpp)*zf;
-        var slope=Math.atan(Math.sqrt(dzdx*dzdx+dzdy*dzdy));
-        var aspect=Math.atan2(dzdy,-dzdx);
-        var sh=Math.cos(zen)*Math.cos(slope)+Math.sin(zen)*Math.sin(slope)*Math.cos(azm-aspect);
-        var d=sh-Math.cos(zen),i=(iy*w+ix)*4;
-        if(d<0){o[i]=o[i+1]=o[i+2]=0;o[i+3]=Math.min(200,-d*420);}
-        else{o[i]=o[i+1]=o[i+2]=255;o[i+3]=Math.min(110,d*260);}
-      }
+/* Contour lines (feet) traced in the browser from the elevation tiles (marching squares) */
+var contourTiles=new Map(), FT=0.3048;
+function contourStep(z){return z>=13?100:z>=12?200:z>=10?500:z>=8?1000:2000;}   /* ft between lines: 100 ft when zoomed in, coarser when zoomed out */
+function contourIndex(z){return z>=13?500:z>=10?1000:z>=8?2000:4000;}   /* thicker labeled index lines */
+/* Elevation grid (w+1)x(h+1) at pixel centres; last row/column borrowed from the right/bottom neighbours so lines join across tiles */
+function contourGrid(z,x,y){
+  var n=1<<z,xr=(x+1)%n,yb=Math.min(y+1,n-1);
+  return Promise.all([elevTile(z,x,y),elevTile(z,xr,y),elevTile(z,x,yb),elevTile(z,xr,yb)]).then(function(t){
+    var c=t[0];if(!c)return null;
+    var w=c.w,h=c.h,W=w+1,g=new Float32Array(W*(h+1));
+    function at(tt,ix,iy){return tt&&tt.w===w?tt.data[iy*w+ix]:null;}
+    for(var iy=0;iy<=h;iy++)for(var ix=0;ix<=w;ix++){
+      var v;
+      if(ix<w&&iy<h)v=c.data[iy*w+ix];
+      else if(iy<h)v=at(t[1],0,iy);
+      else if(ix<w)v=at(t[2],ix,0);
+      else v=at(t[3],0,0);
+      if(v===null)v=c.data[Math.min(iy,h-1)*w+Math.min(ix,w-1)];
+      g[iy*W+ix]=v;
     }
-    ctx.putImageData(img,0,0);
-    return c;
-  }),120);
+    return {w:w,h:h,g:g};
+  });
 }
-var HillshadeLayer=L.GridLayer.extend({
+/* -> {w, levels:[{ft, idx, segs:Float32Array [x1,y1,x2,y2,...] in source-tile pixels}]} */
+function contourSegs(z,x,y,step,index){
+  var key=z+'/'+x+'/'+y+'/'+step;
+  if(contourTiles.has(key))return contourTiles.get(key);
+  return lruPut(contourTiles,key,contourGrid(z,x,y).then(function(G){
+    if(!G)return null;
+    var w=G.w,h=G.h,W=w+1,g=G.g,mx=-1e9;
+    for(var i=0;i<g.length;i++)if(g[i]>mx)mx=g[i];
+    var levels=[];
+    for(var ft=step;ft*FT<=mx;ft+=step){
+      var L=ft*FT,s=[];
+      for(var iy=0;iy<h;iy++)for(var ix=0;ix<w;ix++){
+        var a=g[iy*W+ix],b=g[iy*W+ix+1],c=g[(iy+1)*W+ix+1],d=g[(iy+1)*W+ix];
+        var k=(a>=L?8:0)|(b>=L?4:0)|(c>=L?2:0)|(d>=L?1:0);
+        if(k===0||k===15)continue;
+        /* edge crossing points (pixel centre = +0.5) */
+        var px=ix+0.5,py=iy+0.5;
+        var T=[px+(L-a)/(b-a),py], R=[px+1,py+(L-b)/(c-b)], B=[px+(L-d)/(c-d),py+1], Lf=[px,py+(L-a)/(d-a)];
+        var pr;
+        switch(k){
+          case 1:case 14:pr=[Lf,B];break;
+          case 2:case 13:pr=[B,R];break;
+          case 3:case 12:pr=[Lf,R];break;
+          case 4:case 11:pr=[T,R];break;
+          case 6:case 9:pr=[T,B];break;
+          case 7:case 8:pr=[Lf,T];break;
+          case 5:case 10:{
+            var ctr=(a+b+c+d)/4>=L;
+            pr=(k===5)===ctr?[Lf,T,B,R]:[Lf,B,T,R];break;
+          }
+        }
+        for(var j=0;j<pr.length;j++)s.push(pr[j][0],pr[j][1]);
+      }
+      if(s.length)levels.push({ft:ft,idx:ft%index===0,segs:new Float32Array(s)});
+    }
+    return {w:w,levels:levels};
+  }),150);
+}
+/* Join segments into polylines (only used to place labels on index lines) */
+function contourChains(segs){
+  var ends=new Map(),used=new Uint8Array(segs.length/4),out=[];
+  function k(x,y){return Math.round(x*64)+','+Math.round(y*64);}
+  for(var i=0;i<segs.length/4;i++){
+    [k(segs[i*4],segs[i*4+1]),k(segs[i*4+2],segs[i*4+3])].forEach(function(e){
+      var l=ends.get(e);if(l)l.push(i);else ends.set(e,[i]);
+    });
+  }
+  function next(pt,cur){
+    var l=ends.get(k(pt[0],pt[1]));if(!l)return -1;
+    for(var j=0;j<l.length;j++)if(!used[l[j]]&&l[j]!==cur)return l[j];
+    return -1;
+  }
+  for(var s0=0;s0<used.length;s0++){
+    if(used[s0])continue;used[s0]=1;
+    var line=[[segs[s0*4],segs[s0*4+1]],[segs[s0*4+2],segs[s0*4+3]]];
+    for(var dir=0;dir<2;dir++){
+      var cur=s0;
+      for(;;){
+        var tail=line[line.length-1],nx=next(tail,cur);if(nx<0)break;
+        used[nx]=1;cur=nx;
+        var p1=[segs[nx*4],segs[nx*4+1]],p2=[segs[nx*4+2],segs[nx*4+3]];
+        line.push(k(p1[0],p1[1])===k(tail[0],tail[1])?p2:p1);
+      }
+      line.reverse();
+    }
+    out.push(line);
+  }
+  return out;
+}
+var ContourLayer=L.GridLayer.extend({
   createTile:function(coords,done){
-    var tile=document.createElement('canvas'),size=this.getTileSize();
-    tile.width=size.x;tile.height=size.y;
+    var tile=document.createElement('canvas'),size=this.getTileSize(),dpr=Math.min(2,window.devicePixelRatio||1);
+    tile.width=size.x*dpr;tile.height=size.y*dpr;
     if(!elevPM){setTimeout(function(){done(null,tile);},0);return tile;}
     var z=Math.min(coords.z,elevMaxZ),dz=coords.z-z,sx=coords.x>>dz,sy=coords.y>>dz;
-    hillshadeCanvas(z,sx,sy).then(function(src){
-      if(src){
-        var f=1<<dz,cw=src.width/f;
-        tile.getContext('2d').drawImage(src,(coords.x-(sx<<dz))*cw,(coords.y-(sy<<dz))*cw,cw,cw,0,0,size.x,size.y);
+    contourSegs(z,sx,sy,contourStep(coords.z),contourIndex(coords.z)).then(function(r){
+      if(r&&r.levels.length){
+        var f=1<<dz,sc=size.x*dpr*f/r.w,ox=(coords.x-(sx<<dz))*r.w/f,oy=(coords.y-(sy<<dz))*r.w/f;
+        var ctx=tile.getContext('2d'),W=tile.width;
+        ctx.lineJoin='round';ctx.lineCap='round';
+        r.levels.forEach(function(lv){
+          var s=lv.segs;
+          ctx.beginPath();
+          for(var i=0;i<s.length;i+=4){
+            ctx.moveTo((s[i]-ox)*sc,(s[i+1]-oy)*sc);ctx.lineTo((s[i+2]-ox)*sc,(s[i+3]-oy)*sc);
+          }
+          ctx.strokeStyle=lv.idx?'rgba(150,75,20,0.9)':'rgba(170,95,35,0.6)';
+          ctx.lineWidth=(lv.idx?1.6:0.8)*dpr;
+          ctx.stroke();
+        });
+        /* labels on index lines: one per long-enough chain piece, kept inside the tile */
+        ctx.font='600 '+(10*dpr)+'px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+        var m=14*dpr,taken=[];
+        r.levels.forEach(function(lv){
+          if(!lv.idx)return;
+          var txt=lv.ft.toLocaleString('en-US'),tw=ctx.measureText(txt).width;
+          contourChains(lv.segs).forEach(function(line){
+            var P=line.map(function(p){return [(p[0]-ox)*sc,(p[1]-oy)*sc];}),acc=0,need=tw+6*dpr;
+            for(var i=1;i<P.length;i++){
+              var dx=P[i][0]-P[i-1][0],dy=P[i][1]-P[i-1][1],len=Math.sqrt(dx*dx+dy*dy);
+              acc+=len;
+              if(acc<need*1.5)continue;
+              var cx=P[i][0],cy=P[i][1];
+              if(cx<m||cy<m||cx>W-m||cy>W-m)continue;
+              if(taken.some(function(t){return Math.abs(t[0]-cx)<110*dpr&&Math.abs(t[1]-cy)<70*dpr;}))continue;
+              var j=Math.max(0,i-3),k2=Math.min(P.length-1,i+3),ang=Math.atan2(P[k2][1]-P[j][1],P[k2][0]-P[j][0]);
+              if(ang>Math.PI/2)ang-=Math.PI;else if(ang<-Math.PI/2)ang+=Math.PI;
+              ctx.save();ctx.translate(cx,cy);ctx.rotate(ang);
+              ctx.lineWidth=3*dpr;ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.strokeText(txt,0,0);
+              ctx.fillStyle='rgb(120,55,10)';ctx.fillText(txt,0,0);
+              ctx.restore();
+              taken.push([cx,cy]);acc=-350*dpr;
+            }
+          });
+        });
       }
       done(null,tile);
     });
     return tile;
   }
 });
-var hillshadeLayer=new HillshadeLayer({pane:'hillshadeTop',zIndex:1,attribution:'Terrain: Mapzen / AWS Terrain Tiles'});
+var contourLayer=new ContourLayer({pane:'terrainTop',zIndex:1,minZoom:7,attribution:'Terrain: Mapzen / AWS Terrain Tiles'});
 
 function setElevSource(source){
   if(typeof pmtiles==='undefined')return Promise.reject(new Error('lib'));
   var pm=new pmtiles.PMTiles(source);
   return pm.getHeader().then(function(h){
-    elevPM=pm;elevMaxZ=h.maxZoom||10;elevTiles.clear();shadeTiles.clear();
-    hillshadeLayer.redraw();
+    elevPM=pm;elevMaxZ=h.maxZoom||10;elevTiles.clear();contourTiles.clear();
+    contourLayer.redraw();
     Object.keys(elevCache).forEach(function(k){if(elevCache[k]==='err')delete elevCache[k];});
     loadElev();drawLines();
     return h;
@@ -4796,7 +4893,7 @@ var enrWptLblGroup=L.layerGroup([enrLblLayer,enrWptLayer]);
 var layerCtl=L.control.layers(
  {'ภาพดาวเทียม':sat,'แผนที่ถนน':osm,'ภูมิประเทศ':topo,'แผนที่ออฟไลน์ (OSM)':offlineBase},
  {
-   'เงาภูเขา (Hillshade)':hillshadeLayer,
+   'เส้นชั้นความสูง (Contour ft)':contourLayer,
    '<span style="color:#d9dde2;font-weight:600">OFF-ROUTE Wpt</span>':offRouteLayer,
    'เส้นจังหวัด':provLayer,
    'สนามบิน':aptLayer,
@@ -6316,7 +6413,7 @@ function renderElevInfo(msg){
   else if(elevState.stored){
     info.innerHTML='✓ มีข้อมูลความสูงในเครื่องแล้ว '+fmtMB(elevState.bytes)+
       (elevState.savedAt?' (โหลดเมื่อ '+new Date(elevState.savedAt).toLocaleDateString('th-TH')+')':'')+
-      '<br>กราฟความสูง + Highest ELEV ใช้ได้แม้ไม่มีสัญญาณ เปิดชั้น "เงาภูเขา (Hillshade)" ได้';
+      '<br>กราฟความสูง + Highest ELEV ใช้ได้แม้ไม่มีสัญญาณ เปิดชั้น "เส้นชั้นความสูง (Contour ft)" ได้';
   }else if(elevState.onServer===false){
     info.textContent='ยังไม่มีไฟล์ความสูงบนเว็บไซต์ (map/elevation.pmtiles) ต้องให้ GitHub Actions สร้างก่อน';
   }else{
@@ -6374,7 +6471,7 @@ function deleteElev(){
   if(!confirm('ลบข้อมูลความสูงออกจากเครื่อง?'))return;
   caches.delete(ELEV_CACHE).then(function(){
     elevState.stored=false;elevState.bytes=0;elevState.savedAt=0;
-    elevPM=null;elevTiles.clear();shadeTiles.clear();hillshadeLayer.redraw();
+    elevPM=null;elevTiles.clear();contourTiles.clear();contourLayer.redraw();
     if(navigator.onLine)return setElevSource(ELEV_URL).catch(function(){});
   }).then(function(){renderElevInfo();});
 }

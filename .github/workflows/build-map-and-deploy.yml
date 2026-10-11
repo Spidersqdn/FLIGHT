@@ -21,7 +21,7 @@ env:
   # Thailand + border areas: min_lon,min_lat,max_lon,max_lat
   MAP_BBOX: "97.0,5.4,106.0,20.7"
   # Highest zoom stored in the map file (higher = more detail, bigger file)
-  MAP_MAXZOOM: "12"
+  MAP_MAXZOOM: "13"
   # Elevation detail: zoom 10 = about 150 m per sample
   ELEV_MAXZOOM: "10"
 
