@@ -6113,9 +6113,10 @@ function elevFt(lat,lng){
       });
   });
 }
-function showMapPointInfo(ll){
+function showMapPointInfo(ll,opt){
+  opt=opt||{};
   var now=Date.now();
-  if(now-mapInfoLast<800)return;
+  if(!opt.force && now-mapInfoLast<800)return;
   mapInfoLast=now;
   mapInfoSuppressClick=now+700;
   ll=ll.wrap();
@@ -6129,7 +6130,8 @@ function showMapPointInfo(ll){
   }
   if(mapInfoMarker)map.removeLayer(mapInfoMarker);
   mapInfoMarker=L.circleMarker([p.lat,p.lng],{radius:6,color:'#ffb000',weight:2,fillColor:'#ffb000',fillOpacity:.5}).addTo(map);
-  var html='<div class="mapinfo-popup"><h4>MAP POINT</h4>'+
+  var html='<div class="mapinfo-popup"><h4>'+esc(opt.title||'MAP POINT')+'</h4>'+
+    (opt.sub?'<div>'+esc(opt.sub)+'</div>':'')+
     '<div><b>Lat/Long:</b> '+esc(formatDDM(p.lat,true))+' / '+esc(formatDDM(p.lng,false))+'</div>'+
     '<div><b>Radial/DME:</b> '+rd+'</div>'+
     '<div><b>Elevation:</b> <span class="mi-elev">…</span></div>'+
@@ -6138,8 +6140,9 @@ function showMapPointInfo(ll){
   var pop=L.popup({closeButton:true,autoPan:true,autoPanPadding:[50,50],offset:[0,-4]}).setLatLng([p.lat,p.lng]).setContent(html).openOn(map);
   var el=pop.getElement();
   var icao=ap?ap[0]:'';
-  el.querySelector('.mi-route').onclick=function(){addPt(p.lat,p.lng,'',icao);map.closePopup(pop);};
-  el.querySelector('.mi-off').onclick=function(){addOffRoutePt(p.lat,p.lng,'',icao);map.closePopup(pop);};
+  var nm=opt.name||'';
+  el.querySelector('.mi-route').onclick=function(){addPt(p.lat,p.lng,nm,icao);map.closePopup(pop);};
+  el.querySelector('.mi-off').onclick=function(){addOffRoutePt(p.lat,p.lng,nm,icao);map.closePopup(pop);};
   pop.on('remove',function(){if(mapInfoMarker){map.removeLayer(mapInfoMarker);mapInfoMarker=null;}});
   elevFt(p.lat,p.lng).then(function(e){
     var s=el.querySelector('.mi-elev');
@@ -6290,12 +6293,18 @@ document.getElementById('searchForm').addEventListener('submit',function(e){
   var q=document.getElementById('q').value.trim();
   if(!q)return;
 
+  /* fly to the result, then show the same MAP POINT popup as long-press (Add ROUTE / Add Off-Route) */
+  function showFound(lat,lng,title,sub,name){
+    map.closePopup();
+    map.once('moveend',function(){
+      showMapPointInfo(L.latLng(lat,lng),{force:true,title:title,sub:sub,name:name});
+    });
+    map.flyTo([lat,lng],11);
+  }
+
   var ap=APX[q.toUpperCase()];
   if(ap){
-    map.flyTo([ap[4],ap[5]],11);
-    L.popup().setLatLng([ap[4],ap[5]])
-      .setContent('<b>'+esc(ap[0])+'</b> '+esc(ap[2]))
-      .openOn(map);
+    showFound(ap[4],ap[5],ap[0],ap[2],ap[0]);
     return;
   }
 
@@ -6303,7 +6312,8 @@ document.getElementById('searchForm').addEventListener('submit',function(e){
   .then(function(r){return r.json();})
   .then(function(j){
     if(!j.length){alert('ไม่พบสถานที่');return;}
-    map.flyTo([Number(j[0].lat),Number(j[0].lon)],11);
+    var full=String(j[0].display_name||q);
+    showFound(Number(j[0].lat),Number(j[0].lon),'SEARCH: '+q,full,full.split(',')[0].trim()||q);
   })
   .catch(function(){alert('ค้นหาสถานที่ไม่สำเร็จ');});
 });
