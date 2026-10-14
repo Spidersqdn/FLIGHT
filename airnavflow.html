@@ -3707,7 +3707,7 @@ var mtbLayer=L.layerGroup();
     var ct=MTB_CONTACT[m.id]||{};
     var html='<div class="airspace-popup"><h4 style="color:'+m.c+'"><b>มทบ.'+esc(m.id)+'</b> · กองทัพภาคที่ '+m.army+'</h4><div>'+
       '<b>จังหวัด:</b> '+esc(m.prov.join(', '))+'<br>'+
-      '<b>ผู้ติดต่อ:</b> '+esc(ct.name||'-')+(ct.tt?' (ตท.'+esc(ct.tt)+')':'')+'<br>'+
+      '<b>ผู้ติดต่อ:</b> '+esc(ct.name||'-')+(ct.name?' (ตท.'+esc(ct.tt||'-')+')':'')+'<br>'+
       '<b>ตำแหน่ง:</b> '+esc(ct.pos||'-')+'<br>'+
       '<b>โทร.:</b> '+(ct.tel?'<a href="tel:'+esc(ct.tel.replace(/\D/g,''))+'">'+esc(ct.tel)+'</a>':'-')+'</div></div>';
     L.marker(m.lab,{icon:L.divIcon({className:'mtblbl',html:'<span style="border-color:'+m.c+'">มทบ.'+esc(m.id)+'</span>'}),keyboard:false})
