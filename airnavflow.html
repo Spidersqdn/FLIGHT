@@ -747,6 +747,10 @@ td button{padding:0 7px;line-height:22px;color:var(--red);background:none;border
 .z7 .provlbl{display:block}
 .mtblbl{width:auto!important;height:auto!important;background:none;border:0}
 .mtblbl span{display:inline-block;transform:translate(-50%,-50%);padding:2px 6px;border:2px solid;border-radius:10px;background:rgba(20,22,26,.8);color:#fff;font:700 12px var(--sans);white-space:nowrap;cursor:pointer}
+.rtaflbl span{border-color:#3fa9f5;transform:translate(-50%,-150%);font-size:11px}
+.rtaf-popup{max-height:55vh;overflow:auto}
+.rtaf-sec{margin:6px 0 2px;font-weight:700;color:#1f6fb2;border-bottom:1px solid #ccd}
+.rtaf-row{margin:3px 0 5px;font-size:12px;line-height:1.35}
 #status{position:absolute;left:10px;bottom:10px;z-index:900;background:rgba(55,60,67,.90);border:1px solid var(--line);border-radius:6px;padding:4px 10px;font:12px var(--mono);color:var(--text);max-width:calc(100% - 20px)}
 .pl{font-size:11px;color:var(--mute);font-family:var(--sans)}
 .ap h4{margin:0 0 4px;font-size:14px}.ap div{font-size:12px;line-height:1.5}.ap button{margin-top:6px;background:#f5b335;color:#1a1200;border:none;font-weight:600;padding:5px 10px}
@@ -3696,6 +3700,7 @@ var mtbPane=map.createPane('mtb');
 mtbPane.style.zIndex=340;
 mtbPane.style.pointerEvents='none';
 var mtbLayer=L.layerGroup();
+var rtafLayer=L.layerGroup();   /* RTAF POC, filled by loadRtafPoc() */
 (function(){
   var col={};
   MTB_DB.mtb.forEach(function(m){col[m.id]=m.c;});
@@ -5011,6 +5016,7 @@ var layerCtl=L.control.layers(
    '<span style="color:#d9dde2;font-weight:600">OFF-ROUTE Wpt</span>':offRouteLayer,
    'เส้นจังหวัด':provLayer,
    'มทบ.':mtbLayer,
+   '<span style="color:#3fa9f5;font-weight:600">RTAF POC</span>':rtafLayer,
    'สนามบิน':aptLayer,
    'VFR BKK <span style="color:#72e4f5;font-weight:600">A/C</span> &amp; <span style="color:#ffd36a;font-weight:600">Helicopter</span> Wpt':vfrRptGroup,
    '<span style="color:#ff1a1a;font-weight:600">VTP</span> · <span style="color:#ff944d;font-weight:600">VTR</span> · <span style="color:#ffcc00;font-weight:600">VTD</span> · <span style="color:#b388ff;font-weight:600">VTTRA</span>':airspaceGroup,
@@ -6716,27 +6722,79 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
   navigator.serviceWorker.register('sw.js').catch(function(){});
 }
 
-/* ---- มทบ. contacts from data/มทบ.txt (edit on GitHub); falls back to MTB_CONTACT above, offline copy in Cache Storage ---- */
-var MTB_URL='data/'+encodeURIComponent('มทบ')+'.txt', MTB_CACHE='fp-mtb-v1';
-function loadMtbFile(){
-  fetch(MTB_URL,{cache:'no-cache'}).then(function(r){
+/* ---- Editable data files in data/ (edit on GitHub). Network first, offline copy in Cache Storage. ---- */
+var DATA_CACHE='fp-mtb-v1';
+function fetchDataTxt(file){
+  var url='data/'+encodeURIComponent(file)+'.txt';
+  return fetch(url,{cache:'no-cache'}).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status);
     var copy=r.clone();
-    if(window.caches)caches.open(MTB_CACHE).then(function(c){c.put(MTB_URL,copy);}).catch(function(){});
+    if(window.caches)caches.open(DATA_CACHE).then(function(c){c.put(url,copy);}).catch(function(){});
     return r.text();
   }).catch(function(){
     if(!window.caches)throw new Error('no cache');
-    return caches.open(MTB_CACHE).then(function(c){return c.match(MTB_URL);}).then(function(r){if(!r)throw new Error('not cached');return r.text();});
-  }).then(function(t){
+    return caches.open(DATA_CACHE).then(function(c){return c.match(url);}).then(function(r){if(!r)throw new Error('not cached');return r.text();});
+  });
+}
+function parseDataTxt(t){   /* "a | b | c" lines; # = comment */
+  var out=[];
+  t.split('\n').forEach(function(l){
+    l=l.trim();if(!l||l[0]==='#')return;
+    out.push(l.split('|').map(function(x){return x.trim();}));
+  });
+  return out;
+}
+function telLink(t){return t?'<a href="tel:'+esc(t.replace(/\D/g,''))+'">'+esc(t)+'</a>':'-';}
+
+/* มทบ. contacts from data/มทบ.txt; falls back to MTB_CONTACT above */
+function loadMtbFile(){
+  fetchDataTxt('มทบ').then(function(t){
     var got={},n=0;
-    t.split('\n').forEach(function(l){
-      l=l.trim();if(!l||l[0]==='#')return;
-      var f=l.split('|').map(function(x){return x.trim();});
+    parseDataTxt(t).forEach(function(f){
       var id=(f[0]||'').replace(/\D/g,'');if(!id)return;
       got[id]={name:f[1]||'',tt:f[2]||'',pos:f[3]||'',tel:f[4]||''};n++;
     });
     if(n)MTB_CONTACT=got;
   }).catch(function(){});
+}
+
+/* RTAF POC layer: data/ผบ.ฝูง.txt + data/CSAR.txt, one pin per base (ICAO) */
+function loadRtafPoc(){
+  var bases={},order=[];
+  function base(icao){
+    icao=(icao||'').toUpperCase();
+    if(!APX[icao])return null;
+    if(!bases[icao]){bases[icao]={icao:icao,sq:[],csar:{},csarOrder:[],wings:[]};order.push(icao);}
+    return bases[icao];
+  }
+  Promise.all([
+    fetchDataTxt('ผบ.ฝูง').then(parseDataTxt).catch(function(){return [];}),
+    fetchDataTxt('CSAR').then(parseDataTxt).catch(function(){return [];})
+  ]).then(function(r){
+    r[0].forEach(function(f){var b=base(f[1]);if(!b)return;
+      if(b.wings.indexOf(f[0])<0)b.wings.push(f[0]);
+      b.sq.push({wing:f[0],name:f[2]||'',pos:f[3]||'',tt:f[4]||'',tel:f[5]||''});});
+    r[1].forEach(function(f){var b=base(f[1]);if(!b)return;
+      var u=f[0]||'';if(!b.csar[u]){b.csar[u]=[];b.csarOrder.push(u);}
+      b.csar[u].push({no:f[2]||'',name:f[3]||'',nick:f[4]||'',pos:f[5]||'',tel:f[6]||''});});
+    rtafLayer.clearLayers();
+    order.forEach(function(icao){
+      var b=bases[icao],a=APX[icao];
+      var lbl=b.wings.concat(b.csarOrder.map(function(u){return 'CSAR '+u.split(/\s/)[0];})).join(' · ');
+      var h='<div class="airspace-popup rtaf-popup"><h4 style="color:#3fa9f5"><b>'+esc(icao)+'</b> '+esc(a[2])+'</h4>';
+      if(b.sq.length){
+        h+='<div class="rtaf-sec">ผบ.ฝูง</div>';
+        b.sq.forEach(function(x){h+='<div class="rtaf-row"><b>'+esc(x.name||'-')+'</b> (ตท.'+esc(x.tt||'-')+')<br>'+esc(x.pos||'-')+'<br>โทร. '+telLink(x.tel)+'</div>';});
+      }
+      b.csarOrder.forEach(function(u){
+        h+='<div class="rtaf-sec">CSAR หน่วยบิน '+esc(u)+'</div>';
+        b.csar[u].forEach(function(x){h+='<div class="rtaf-row">'+esc(x.no)+'. <b>'+esc(x.name||'-')+'</b>'+(x.nick?' ('+esc(x.nick)+')':'')+'<br>'+esc(x.pos||'-')+'<br>โทร. '+telLink(x.tel)+'</div>';});
+      });
+      h+='</div>';
+      L.marker([a[4],a[5]],{icon:L.divIcon({className:'mtblbl rtaflbl',html:'<span>'+esc(lbl)+'</span>'}),keyboard:false})
+        .bindPopup(h,{maxWidth:300}).addTo(rtafLayer);
+    });
+  });
 }
 
 /* ---- Daily NOTAM file (notam/latest.txt, updated by the daily routine) ----
@@ -6785,6 +6843,7 @@ initOfflineMap();
 initElev();
 loadAutoNotam();
 loadMtbFile();
+loadRtafPoc();
 /* Reload the daily file when the app comes back to the foreground after 3 h (new day's NOTAM). */
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='visible'&&Date.now()-notamAutoAt>3*3600e3)loadAutoNotam();
