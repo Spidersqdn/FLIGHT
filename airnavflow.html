@@ -3704,12 +3704,11 @@ var mtbLayer=L.layerGroup();
     style:function(f){var c=col[f.properties.m];return {color:'#fff',weight:.8,opacity:.8,fillColor:c,fillOpacity:.32};}
   }).addTo(mtbLayer);
   MTB_DB.mtb.forEach(function(m){
-    var ct=MTB_CONTACT[m.id]||{};
-    var html='<div class="airspace-popup"><h4 style="color:'+m.c+'"><b>มทบ.'+esc(m.id)+'</b> · กองทัพภาคที่ '+m.army+'</h4><div>'+
+    var html=function(){var ct=MTB_CONTACT[m.id]||{};return '<div class="airspace-popup"><h4 style="color:'+m.c+'"><b>มทบ.'+esc(m.id)+'</b> · กองทัพภาคที่ '+m.army+'</h4><div>'+
       '<b>จังหวัด:</b> '+esc(m.prov.join(', '))+'<br>'+
       '<b>ผู้ติดต่อ:</b> '+esc(ct.name||'-')+(ct.name?' (ตท.'+esc(ct.tt||'-')+')':'')+'<br>'+
       '<b>ตำแหน่ง:</b> '+esc(ct.pos||'-')+'<br>'+
-      '<b>โทร.:</b> '+(ct.tel?'<a href="tel:'+esc(ct.tel.replace(/\D/g,''))+'">'+esc(ct.tel)+'</a>':'-')+'</div></div>';
+      '<b>โทร.:</b> '+(ct.tel?'<a href="tel:'+esc(ct.tel.replace(/\D/g,''))+'">'+esc(ct.tel)+'</a>':'-')+'</div></div>';};
     L.marker(m.lab,{icon:L.divIcon({className:'mtblbl',html:'<span style="border-color:'+m.c+'">มทบ.'+esc(m.id)+'</span>'}),keyboard:false})
       .bindPopup(html).addTo(mtbLayer);
   });
@@ -6717,6 +6716,29 @@ if('serviceWorker' in navigator&&location.protocol!=='file:'){
   navigator.serviceWorker.register('sw.js').catch(function(){});
 }
 
+/* ---- มทบ. contacts from data/มทบ.txt (edit on GitHub); falls back to MTB_CONTACT above, offline copy in Cache Storage ---- */
+var MTB_URL='data/'+encodeURIComponent('มทบ')+'.txt', MTB_CACHE='fp-mtb-v1';
+function loadMtbFile(){
+  fetch(MTB_URL,{cache:'no-cache'}).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var copy=r.clone();
+    if(window.caches)caches.open(MTB_CACHE).then(function(c){c.put(MTB_URL,copy);}).catch(function(){});
+    return r.text();
+  }).catch(function(){
+    if(!window.caches)throw new Error('no cache');
+    return caches.open(MTB_CACHE).then(function(c){return c.match(MTB_URL);}).then(function(r){if(!r)throw new Error('not cached');return r.text();});
+  }).then(function(t){
+    var got={},n=0;
+    t.split('\n').forEach(function(l){
+      l=l.trim();if(!l||l[0]==='#')return;
+      var f=l.split('|').map(function(x){return x.trim();});
+      var id=(f[0]||'').replace(/\D/g,'');if(!id)return;
+      got[id]={name:f[1]||'',tt:f[2]||'',pos:f[3]||'',tel:f[4]||''};n++;
+    });
+    if(n)MTB_CONTACT=got;
+  }).catch(function(){});
+}
+
 /* ---- Daily NOTAM file (notam/latest.txt, updated by the daily routine) ----
    Loaded into the Imported NOTAM layer. Kept in Cache Storage for offline use. */
 var NOTAM_AUTO_URL='notam/latest.txt', NOTAM_AUTO_CACHE='fp-notam-v1', notamAutoAt=0;
@@ -6762,6 +6784,7 @@ loadOffRoute();
 initOfflineMap();
 initElev();
 loadAutoNotam();
+loadMtbFile();
 /* Reload the daily file when the app comes back to the foreground after 3 h (new day's NOTAM). */
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='visible'&&Date.now()-notamAutoAt>3*3600e3)loadAutoNotam();
