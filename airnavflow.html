@@ -6780,7 +6780,7 @@ function loadRtafPoc(){
     rtafLayer.clearLayers();
     order.forEach(function(icao){
       var b=bases[icao],a=APX[icao];
-      var lbl=b.wings.concat(b.csarOrder.map(function(u){return 'CSAR '+u.split(/\s/)[0];})).join(' · ');
+      var lbl=b.wings.concat(b.csarOrder.map(function(u){return u.split(/\s/)[0];})).join(' · ');
       var h='<div class="airspace-popup rtaf-popup"><h4 style="color:#3fa9f5"><b>'+esc(icao)+'</b> '+esc(a[2])+'</h4>';
       if(b.sq.length){
         h+='<div class="rtaf-sec">ผบ.ฝูง</div>';
