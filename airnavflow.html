@@ -1580,11 +1580,11 @@ td .wp-delete{
 
   <div class="wp-mode" id="wpModeLatLon">
     <div class="wp-grid">
-      <label>Latitude (DD°MM.mmm′)
-        <input id="wpLat" type="text" placeholder="13°54.750'N">
+      <label>Latitude (N13 54.750)
+        <input id="wpLat" type="text" placeholder="N13 54.750" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </label>
-      <label>Longitude (DDD°MM.mmm′)
-        <input id="wpLng" type="text" placeholder="100°36.400'E">
+      <label>Longitude (E099 45.000)
+        <input id="wpLng" type="text" placeholder="E099 45.000" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </label>
       <label class="full">Waypoint Name (optional)
         <input id="wpName" type="text" placeholder="e.g. WP1">
@@ -3503,6 +3503,9 @@ function dm(d,m){ return d + m/60; }
 function parseCoordInput(value,isLat){
   var s=String(value||'').trim().toUpperCase();
   if(!s) return NaN;
+  // Hemisphere prefix (N13 54.750 / E099 45.000) -> suffix form
+  var pre=s.match(/^([NSEW])\s*(.+)$/);
+  if(pre) s=pre[2].trim()+pre[1];
 
   // Degrees Decimal Minutes (preferred)
   // Examples:
@@ -3546,6 +3549,20 @@ function parseCoordInput(value,isLat){
     return out2;
   }
 
+  // Compact DMS: DDMMSS(.s)N / DDDMMSS(.s)E
+  var cdms=isLat
+    ? s.match(/^(\d{2})(\d{2})(\d{2}(?:\.\d+)?)([NS])$/)
+    : s.match(/^(\d{3})(\d{2})(\d{2}(?:\.\d+)?)([EW])$/);
+
+  if(cdms){
+    var min4=Number(cdms[2]), sec4=Number(cdms[3]);
+    if(min4>=60||sec4>=60)return NaN;
+    var out4=dms(Number(cdms[1]),min4,sec4);
+    if(out4>(isLat?90:180))return NaN;
+    if(cdms[4]==='S'||cdms[4]==='W')out4=-out4;
+    return out4;
+  }
+
   // Decimal degrees fallback
   var dec=s.match(/^([+-]?\d+(?:\.\d+)?)\s*([NSEW])?$/);
   if(dec){
@@ -3572,6 +3589,49 @@ function formatDDM(value,isLat){
   var degWidth=isLat?2:3;
   return String(d).padStart(degWidth,'0')+'°'+min.toFixed(3).padStart(6,'0')+"'"+hem;
 }
+
+// Value for coordinate input boxes: N13 54.750 / E099 45.000
+function formatDDMInput(value,isLat){
+  var m=formatDDM(value,isLat).match(/^(\d+)°([\d.]+)'([NSEW])$/);
+  return m[3]+m[1]+' '+m[2];
+}
+
+// Coordinate inputs accept only digits, '.', space, and N S (lat) / E W (lng).
+// Pasting a combined "N13 54.750 E099 45.000" into either box fills both.
+var COORD_INPUT_PAIRS={wpLat:'wpLng',offEditLatVal:'offEditLngVal',editWpLat:'editWpLng'};
+function coordPairOf(id){
+  if(COORD_INPUT_PAIRS[id])return {lat:id,lng:COORD_INPUT_PAIRS[id]};
+  for(var k in COORD_INPUT_PAIRS)if(COORD_INPUT_PAIRS[k]===id)return {lat:k,lng:id};
+  return null;
+}
+function filterCoordText(v,isLat){
+  return String(v||'').toUpperCase().replace(isLat?/[^0-9. NS]/g:/[^0-9. EW]/g,'');
+}
+document.addEventListener('input',function(e){
+  var el=e.target;
+  if(!el||!el.id||el.tagName!=='INPUT')return;
+  var pair=coordPairOf(el.id);
+  if(!pair)return;
+  var isLat=(el.id===pair.lat);
+  var raw=String(el.value||'').toUpperCase();
+  var both=raw.replace(/[^0-9. NSEW]/g,'').trim().match(/^([NS]\s*[\d. ]*\d|[\d. ]*\d\s*[NS])\s*[,\/]?\s*([EW]\s*[\d. ]*\d|[\d. ]*\d\s*[EW])$/);
+  if(both){
+    var latEl=document.getElementById(pair.lat), lngEl=document.getElementById(pair.lng);
+    if(latEl&&lngEl){
+      latEl.value=both[1]; lngEl.value=both[2];
+      var other=isLat?lngEl:latEl;
+      other.dispatchEvent(new Event('change',{bubbles:true}));
+      return;
+    }
+  }
+  var clean=filterCoordText(raw,isLat);
+  if(clean!==el.value){
+    var pos=el.selectionStart;
+    var removed=pos==null?0:(el.value.slice(0,pos).length-filterCoordText(el.value.slice(0,pos),isLat).length);
+    el.value=clean;
+    if(pos!=null){try{el.setSelectionRange(pos-removed,pos-removed);}catch(_){}}
+  }
+},true);
 
 function waypointFromRadialDme(refLat,refLng,radialDeg,dmeNm){
   return destinationPoint(refLat,refLng,radialDeg,dmeNm);
@@ -4540,8 +4600,8 @@ function openOffRouteEditor(marker,p,index){
         '<button type="button" id="offEditMapBtn" class="offroute-map-edit-btn">EDIT ON MAP</button>'+
       '</div>'+
       '<div id="offEditLat" class="wp-edit-mode on">'+
-        '<label>Latitude (DDM)<input id="offEditLatVal" type="text" value="'+esc(formatDDM(editPoint.lat,true))+'"></label>'+
-        '<label>Longitude (DDM)<input id="offEditLngVal" type="text" value="'+esc(formatDDM(editPoint.lng,false))+'"></label>'+
+        '<label>Latitude (DDM)<input id="offEditLatVal" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="'+esc(formatDDMInput(editPoint.lat,true))+'"></label>'+
+        '<label>Longitude (DDM)<input id="offEditLngVal" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="'+esc(formatDDMInput(editPoint.lng,false))+'"></label>'+
       '</div>'+
       '<div id="offEditRad" class="wp-edit-mode">'+
         '<label>Reference Airport (ICAO)<input id="offEditRefIcao" type="text" value="'+esc(radialInfo.icao)+'" placeholder="VTBD"></label>'+
@@ -5443,8 +5503,8 @@ function openWaypointEditor(marker,p,index){
         '<button type="button" id="editWpMapBtn" class="route-map-edit-btn">EDIT ON MAP</button>'+
       '</div>'+
       '<div id="editModeLat" class="wp-edit-mode on">'+
-        '<label>Latitude (DDM)<input id="editWpLat" type="text" value="'+esc(formatDDM(editPoint.lat,true))+'"></label>'+
-        '<label>Longitude (DDM)<input id="editWpLng" type="text" value="'+esc(formatDDM(editPoint.lng,false))+'"></label>'+
+        '<label>Latitude (DDM)<input id="editWpLat" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="'+esc(formatDDMInput(editPoint.lat,true))+'"></label>'+
+        '<label>Longitude (DDM)<input id="editWpLng" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="'+esc(formatDDMInput(editPoint.lng,false))+'"></label>'+
       '</div>'+
       '<div id="editModeRad" class="wp-edit-mode">'+
         '<label>Reference Airport (ICAO)<input id="editWpRefIcao" type="text" value="'+esc(radialInfo.icao)+'" placeholder="VTBD"></label>'+
@@ -6398,7 +6458,7 @@ document.getElementById('wpAddLatLon').onclick=function(){
   var name=document.getElementById('wpName').value.trim();
 
   if(!isFinite(lat) || !isFinite(lng)){
-    alert("Invalid LAT / LONG format. Use DDM, e.g. 13°54.750'N / 100°36.400'E");
+    alert("Invalid LAT / LONG format. e.g. N13 54.750 / E099 45.000");
     return;
   }
 
@@ -6412,7 +6472,7 @@ document.getElementById('wpAddLatLonOffRoute').onclick=function(){
   var name=document.getElementById('wpName').value.trim();
 
   if(!isFinite(lat)||!isFinite(lng)){
-    alert("Invalid LAT / LONG format. Use DDM, e.g. 13°54.750'N / 100°36.400'E");
+    alert("Invalid LAT / LONG format. e.g. N13 54.750 / E099 45.000");
     return;
   }
 
