@@ -1580,11 +1580,11 @@ td .wp-delete{
 
   <div class="wp-mode" id="wpModeLatLon">
     <div class="wp-grid">
-      <label>Latitude (DDMM.mmmN / DDMMSSN)
-        <input id="wpLat" type="text" placeholder="1354.750N" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <label>Latitude (N13 54.750)
+        <input id="wpLat" type="text" placeholder="N13 54.750" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </label>
-      <label>Longitude (DDDMM.mmmE / DDDMMSSE)
-        <input id="wpLng" type="text" placeholder="10036.400E" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <label>Longitude (E099 45.000)
+        <input id="wpLng" type="text" placeholder="E099 45.000" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </label>
       <label class="full">Waypoint Name (optional)
         <input id="wpName" type="text" placeholder="e.g. WP1">
@@ -3503,6 +3503,9 @@ function dm(d,m){ return d + m/60; }
 function parseCoordInput(value,isLat){
   var s=String(value||'').trim().toUpperCase();
   if(!s) return NaN;
+  // Hemisphere prefix (N13 54.750 / E099 45.000) -> suffix form
+  var pre=s.match(/^([NSEW])\s*(.+)$/);
+  if(pre) s=pre[2].trim()+pre[1];
 
   // Degrees Decimal Minutes (preferred)
   // Examples:
@@ -3587,13 +3590,14 @@ function formatDDM(value,isLat){
   return String(d).padStart(degWidth,'0')+'°'+min.toFixed(3).padStart(6,'0')+"'"+hem;
 }
 
-// Value for coordinate input boxes: digits + N/S/E/W only (e.g. 1354.750N)
+// Value for coordinate input boxes: N13 54.750 / E099 45.000
 function formatDDMInput(value,isLat){
-  return formatDDM(value,isLat).replace(/[°']/g,'');
+  var m=formatDDM(value,isLat).match(/^(\d+)°([\d.]+)'([NSEW])$/);
+  return m[3]+m[1]+' '+m[2];
 }
 
-// Coordinate inputs accept only digits, '.', and N S (lat) / E W (lng).
-// Pasting a combined "134500N1004500E" into either box fills both.
+// Coordinate inputs accept only digits, '.', space, and N S (lat) / E W (lng).
+// Pasting a combined "N13 54.750 E099 45.000" into either box fills both.
 var COORD_INPUT_PAIRS={wpLat:'wpLng',offEditLatVal:'offEditLngVal',editWpLat:'editWpLng'};
 function coordPairOf(id){
   if(COORD_INPUT_PAIRS[id])return {lat:id,lng:COORD_INPUT_PAIRS[id]};
@@ -3601,7 +3605,7 @@ function coordPairOf(id){
   return null;
 }
 function filterCoordText(v,isLat){
-  return String(v||'').toUpperCase().replace(isLat?/[^0-9.NS]/g:/[^0-9.EW]/g,'');
+  return String(v||'').toUpperCase().replace(isLat?/[^0-9. NS]/g:/[^0-9. EW]/g,'');
 }
 document.addEventListener('input',function(e){
   var el=e.target;
@@ -3610,7 +3614,7 @@ document.addEventListener('input',function(e){
   if(!pair)return;
   var isLat=(el.id===pair.lat);
   var raw=String(el.value||'').toUpperCase();
-  var both=raw.replace(/[^0-9.NSEW]/g,'').match(/^(\d+(?:\.\d+)?[NS])(\d+(?:\.\d+)?[EW])$/);
+  var both=raw.replace(/[^0-9. NSEW]/g,'').trim().match(/^([NS]\s*[\d. ]*\d|[\d. ]*\d\s*[NS])\s*[,\/]?\s*([EW]\s*[\d. ]*\d|[\d. ]*\d\s*[EW])$/);
   if(both){
     var latEl=document.getElementById(pair.lat), lngEl=document.getElementById(pair.lng);
     if(latEl&&lngEl){
@@ -6454,7 +6458,7 @@ document.getElementById('wpAddLatLon').onclick=function(){
   var name=document.getElementById('wpName').value.trim();
 
   if(!isFinite(lat) || !isFinite(lng)){
-    alert("Invalid LAT / LONG format. e.g. 1354.750N / 10036.400E or 135445N / 1003624E");
+    alert("Invalid LAT / LONG format. e.g. N13 54.750 / E099 45.000");
     return;
   }
 
@@ -6468,7 +6472,7 @@ document.getElementById('wpAddLatLonOffRoute').onclick=function(){
   var name=document.getElementById('wpName').value.trim();
 
   if(!isFinite(lat)||!isFinite(lng)){
-    alert("Invalid LAT / LONG format. e.g. 1354.750N / 10036.400E or 135445N / 1003624E");
+    alert("Invalid LAT / LONG format. e.g. N13 54.750 / E099 45.000");
     return;
   }
 
