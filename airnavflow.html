@@ -1624,7 +1624,7 @@ td .wp-delete{
 <div class="actions">
   <button id="undo">BACK</button>
   <button id="clear">CLEAR ROUTE</button>
-  <button id="gpsBtn" type="button" title="Toggle GPS tracking (map follows position every 1 s)">GPS TRACK</button>
+  <button id="gpsBtn" type="button" title="Toggle GPS tracking (position updates every 1 s; map is free to pan)">GPS TRACK</button>
   <button id="measureBtn" type="button">RULER</button>
   <button id="exportKmz" type="button">EXPORT KMZ</button>
   <button id="wBtn" type="button">WINDY</button>
@@ -5841,7 +5841,7 @@ function drawGpsPosition(pos){
     );
 }
 
-/* GPS TRACK mode: watch position, redraw and re-center the map every 1 s until toggled off */
+/* GPS TRACK mode: watch position and redraw every 1 s until toggled off; centers once on the first fix, then the map stays free to pan */
 var gpsTrackWatch=null,gpsTrackTimer=null,gpsTrackFix=null,gpsTrackFirst=false;
 function setGpsTrack(on){
   var btn=document.getElementById('gpsBtn');
@@ -5861,7 +5861,6 @@ function setGpsTrack(on){
       var ll=[gpsTrackFix.coords.latitude,gpsTrackFix.coords.longitude];
       drawGpsPosition(gpsTrackFix);
       if(gpsTrackFirst){gpsTrackFirst=false;map.setView(ll,Math.max(map.getZoom(),13));}
-      else map.panTo(ll,{animate:true,duration:.5});
     },1000);
     btn.classList.add('active');
   }else{
